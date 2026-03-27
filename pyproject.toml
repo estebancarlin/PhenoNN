@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "phenonn"
+version = "0.1.0"
+description = "DeepPhenoMem - LSTM-based phenology prediction from climate data"
+readme = "README.md"
+requires-python = ">=3.8"
+
+authors = [
+    {name = "Kazem Ardaneh", email = "kazem.arrdaneh@gmail.com"}
+]
+
+license = {file = "LICENSE"}
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Operating System :: MacOS",
+]
+
+dependencies = [
+    "numpy>=1.20.0",
+    "matplotlib>=3.3.0",
+    "torch>=1.10.0,<2.5.0",  # Compatible with Python 3.8
+    "scipy>=1.10.1",
+    "pandas>=2.0.3",
+    "mpltex>=0.7",
+    "xarray>=2023.1.0",
+    "rich>=14.2.0",
+    "tqdm>=4.65.1",
+    "tensorboard>=2.14.0",
+    "scikit-learn>=1.3.2",
+    "netcdf4>=1.7.2",
+    "h5netcdf>=1.1.0",
+    "seaborn>=0.13.2",
+]
+
+# FIX: Move version dynamic to tool.hatch section
+[tool.hatch.version]
+path = "phenonn/version.py"
+
+# FIX: Scripts entry points - must be strings in format "command = module:function"
+[project.scripts]
+phenonn = "phenonn.cli:main"
+
+# Optional: Add separate scripts if you want them
+# phenonn-predict = "phenonn.cli:main_predict"
+# phenonn-train = "phenonn.cli:main_train"
+# phenonn-hp-tuning = "phenonn.cli:main_hp_tuning"
+
+[project.urls]
+Source = "https://github.com/kardaneh/PhenoNN"
+
+[tool.pytest.ini_options]
+markers = ["long: marks tests as long (deselect with '-m \"not long\"')"]
+
+[tool.uv.workspace]
+members = ["tem"]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=3.5.0",
+    "ruff>=0.15.0"
+]
+docs = [
+    "myst-parser>=3.0.1",
+    "sphinx>=7.1.2",
+    "sphinx-rtd-theme>=3.1.0",
+    "sphinx-copybutton>=0.5.0",
+    "sphinx-autodoc-typehints>=1.24.0",
+]

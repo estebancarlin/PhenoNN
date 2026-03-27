@@ -1,11 +1,13 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+.uv
 *.py[cod]
 *$py.class
 
 # C extensions
 *.so
-
+*.out
+*.err
 # Distribution / packaging
 .Python
 build/
@@ -14,6 +16,8 @@ dist/
 downloads/
 eggs/
 .eggs/
+lib/
+lib64/
 parts/
 sdist/
 var/
@@ -55,9 +59,6 @@ cover/
 
 # Django stuff:
 *.log
-*.sh
-*.err
-*.out
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -160,27 +161,29 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
-checkpoints/*
-!checkpoints/.gitkeep
-
-dataset/*
-!dataset/.gitkeep
-
-logs/*
-!logs/.gitkeep
-
-results/*
-!results/.gitkeep
-
-runs/*
-!runs/.gitkeep
+test_plots/
 
 stats/*
 !stats/.gitkeep
 
-python-venv/*
-!python-venv/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
 
-# Ignore all __pycache__ folders recursively
-__pycache__/
+runs/*
+!runs/.gitkeep
+
+logs/*
+!logs/.gitkeep
+
+slurm/*
+!slurm/.gitkeep
+
+slurm_io/*
+!slurm_io/.gitkeep
+
+results/*
+!results/.gitkeep
+# Data
+data/samples_*.nc
+data/e5.*.nc
+data_tp/*
