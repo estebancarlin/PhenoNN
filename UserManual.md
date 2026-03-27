@@ -5,11 +5,11 @@
 *   Libraries: Install required libraries
 
     * Install libraries using `pip`
-            
+
             pip install numpy pandas torch
-    
-        
-    * load custom libraries (dataloader_phenodata, lstm) 
+
+
+    * load custom libraries (dataloader_phenodata, lstm)
 
 *   Hardware acceleration: Utilization of GPU for model training is
     recommended but not mandatory.
@@ -35,14 +35,14 @@ variables and two state variables.
 *   Utilize the provided scripts:
 
     *  Use this script along with LSTM models to predict GCC based on your inputs.
-           
+
            lstm_pred.py
 
     *  Supporting scripts for data
         preprocessing and LSTM model implementation.
-          
+
            dataloader_phenodata.py
-          
+
            lstm.py
 
 *   Example usage:
@@ -53,9 +53,9 @@ variables and two state variables.
         *   Testing data: 'GR_bullshoals.csv',  stored in
             '/example/testdata/GR_bullshoals.csv'
 
-        *   Minimum GCC data: 'gcc_rcc_mins_site_veg.csv' 
-            
-        *   LSTM models: modelname_pft_8f_modelnumber e.g. mfull_GR_8f_0 is the first Mfull model for GR 
+        *   Minimum GCC data: 'gcc_rcc_mins_site_veg.csv'
+
+        *   LSTM models: modelname_pft_8f_modelnumber e.g. mfull_GR_8f_0 is the first Mfull model for GR
 
         *   Custom libraries: 'dataloader_phenodata.py' and 'lstm.py'
 
