@@ -187,3 +187,7 @@ results/*
 data/samples_*.nc
 data/e5.*.nc
 data_tp/*
+
+gcc_pred_*
+
+uv.lock

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "phenonn"
 version = "0.1.0"
 description = "DeepPhenoMem - LSTM-based phenology prediction from climate data"
-readme = "README.md"
+readme = "README.rst"
 requires-python = ">=3.8"
 
 authors = [
@@ -51,6 +51,7 @@ dependencies = [
     "netcdf4>=1.7.2",
     "h5netcdf>=1.1.0",
     "seaborn>=0.13.2",
+    "pre-commit>=3.5.0",
 ]
 
 # FIX: Move version dynamic to tool.hatch section

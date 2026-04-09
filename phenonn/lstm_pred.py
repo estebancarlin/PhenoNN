@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 truc
 # -*- coding: utf-8 -*-
 """
 predict gcc using lstm models
@@ -77,7 +77,7 @@ def run_lstm_pred(
     # load the mininum gcc/rcc data for each site and each pft
     gccmins = pd.read_csv(os.path.join(input_path, "gcc_rcc_mins_site_veg.csv"))
     gccmins = gccmins.set_index(gccmins.columns[0])
-    gccmins_pft = gccmins[gccmins["1"] == pft]
+    gccmins_pft = gccmins[gccmins["veg"] == pft]
 
     normalizer = dl.Normalizer(torch.zeros((1,)), torch.ones((1,)))
     if pft == "DB":
@@ -91,6 +91,13 @@ def run_lstm_pred(
                 8.4446e00,
                 0.0000e00,
                 7.9700e02,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
             ]
         )
         normalizer.max = torch.Tensor(
@@ -103,6 +110,13 @@ def run_lstm_pred(
                 1.5555e01,
                 2.4811e02,
                 1.3410e03,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
             ]
         )
 
@@ -119,6 +133,13 @@ def run_lstm_pred(
                 7.1131e00,
                 0.0000e00,
                 4.2400e02,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
             ]
         )
         normalizer.max = torch.Tensor(
@@ -131,6 +152,13 @@ def run_lstm_pred(
                 1.6887e01,
                 1.2408e02,
                 2.5650e03,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
             ]
         )
 
@@ -147,6 +175,13 @@ def run_lstm_pred(
                 7.8985e00,
                 0.0000e00,
                 3.1100e02,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
+                0.0000e00,
             ]
         )
         normalizer.max = torch.Tensor(
@@ -159,15 +194,28 @@ def run_lstm_pred(
                 1.6102e01,
                 1.1260e02,
                 9.7400e02,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
+                1.0000e00,
             ]
         )
 
         model_nums = 8
 
+    # Move normalizer to the correct device
+    normalizer.min = normalizer.min.to(device)
+    normalizer.max = normalizer.max.to(device)
+    normalizer.label_min = normalizer.label_min.to(device)
+    normalizer.label_max = normalizer.label_max.to(device)
+
     test_dataset = dl.PhenoDataset(
         os.path.join(input_path, "testdata/"),
         pft,
-        preprocessing=normalizer,
+        preprocessing=normalizer.normalize,
         device=device,
     )
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
@@ -183,8 +231,10 @@ def run_lstm_pred(
             torch.load(
                 os.path.join(
                     input_path,
-                    'lstm_models/m{}_{}_8f_{}".format(m, pft)' + str(mod_num),
-                )
+                    "lstm_models/m{}_{}_8f_{}".format(m, pft, mod_num),
+                ),
+                map_location=device,
+                weights_only=False,
             )
         )
         lstm.eval()
@@ -213,7 +263,7 @@ def run_lstm_pred(
             test_pred_siteyear = test_pred[num_siteyr]
             test_pred_siteyear = test_pred_siteyear.reshape(365, 1)
             # add min
-            gccmin_site = gccmins_pft[gccmins_pft["0"] == siteyear[0]]["4"]
+            gccmin_site = gccmins_pft[gccmins_pft["veg"] == siteyear[0]]["rcc_lowess"]
             test_pred_siteyear = test_pred_siteyear + gccmin_site.values
 
             test_pred_allsites.append(test_pred_siteyear)
@@ -227,6 +277,9 @@ def run_lstm_pred(
     df_pred_test = pd.DataFrame(test_pred_allmodels)
 
     df_pred_test.to_csv("gcc_pred_test_{}_m{}.csv".format(pft, m))
+    print(
+        "gcc predictions saved to {}".format("gcc_pred_test_{}_m{}.csv".format(pft, m))
+    )
 
 
 if __name__ == "__main__":
