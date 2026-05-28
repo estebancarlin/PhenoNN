@@ -186,7 +186,7 @@ results/*
 # Data
 data/samples_*.nc
 data/e5.*.nc
-data_tp/*
+data/*
 
 gcc_pred_*
 
