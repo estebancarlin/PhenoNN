@@ -1,7 +1,7 @@
 .. PhenoNN documentation master file
 
-PhenoNN: Deep Learning for Phenology Prediction
-================================================
+PhenoNN: Phenology Neural Networks
+==================================
 
 PhenoNN is a deep learning package that uses LSTM networks to predict Green Chromatic Coordinate (GCC)
 from climate data. It supports multiple plant functional types (PFTs) including Deciduous Broadleaf (DB),
