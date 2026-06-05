@@ -1,5 +1,5 @@
-PhenoNN: Deep Learning for Phenology Prediction
-================================================
+PhenoNN: Phenology Neural Networks
+==================================
 
 |Python Version| |License| |Docs| |Code Style|
 
@@ -13,9 +13,9 @@ Grassland (GR).
    :target: https://www.python.org/
    :alt: Python Version
 
-.. |License| image:: https://img.shields.io/badge/license-BSD-green.svg
-   :target: https://opensource.org/licenses/BSD-3-Clause
-   :alt: License
+.. |License| image:: https://img.shields.io/badge/license-CC%20BY--NC--SA%204.0-lightgrey.svg
+   :target: https://creativecommons.org/licenses/by-nc-sa/4.0/
+   :alt: License: CC BY-NC-SA 4.0
 
 .. |Docs| image:: https://img.shields.io/badge/docs-sphinx-brightgreen.svg
    :target: https://phenonn.readthedocs.io/
