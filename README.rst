@@ -3,36 +3,27 @@ PhenoNN: Deep Learning for Phenology Prediction
 
 |Python Version| |License| |Docs| |Code Style|
 
-PhenoNN is a deep learning package that uses LSTM (Long Short-Term Memory) networks to predict
-Green Chromatic Coordinate (GCC) from climate data. It supports multiple plant functional types
-(PFTs) including Deciduous Broadleaf (DB), Evergreen Needleleaf (EN), and Grassland (GR).
+PhenoNN is a deep learning framework for phenology prediction using LSTM, GRU,
+and Transformer models. It predicts Green Chromatic Coordinate (GCC) and Leaf
+Area Index (LAI) from climate data, supporting multiple plant functional types
+(PFTs) including Deciduous Broadleaf (DB), Evergreen Needleleaf (EN), and
+Grassland (GR).
 
-.. image:: https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11-blue.svg
+.. |Python Version| image:: https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue.svg
    :target: https://www.python.org/
    :alt: Python Version
 
-.. image:: https://img.shields.io/badge/license-BSD-green.svg
+.. |License| image:: https://img.shields.io/badge/license-BSD-green.svg
    :target: https://opensource.org/licenses/BSD-3-Clause
    :alt: License
 
-.. image:: https://img.shields.io/badge/docs-sphinx-brightgreen.svg
+.. |Docs| image:: https://img.shields.io/badge/docs-sphinx-brightgreen.svg
    :target: https://phenonn.readthedocs.io/
    :alt: Documentation
 
-.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
+.. |Code Style| image:: https://img.shields.io/badge/code%20style-black-000000.svg
    :target: https://github.com/psf/black
    :alt: Code Style: Black
-
-Features
---------
-
-- **LSTM-based prediction**: Uses Long Short-Term Memory networks for time series prediction
-- **Multiple PFT support**: Trained models for DB, EN, and GR plant functional types
-- **Flexible feature selection**: Choose from 6, 8, 9, or 14 climate features
-- **Easy-to-use CLI**: Simple command-line interface for predictions and training
-- **Cross-validation**: Leave-one-site-out cross-validation for robust evaluation
-- **GPU acceleration**: CUDA support for faster training and inference
-- **Ensemble predictions**: Combines multiple models for improved accuracy
 
 Table of Contents
 -----------------
@@ -40,16 +31,31 @@ Table of Contents
 .. contents:: :local:
    :depth: 2
 
+Features
+--------
+
+- **Multiple architectures**: LSTM, GRU, and Transformer models
+- **Flexible data formats**: Per-site CSV or flat CSV (features + targets)
+- **Comprehensive feature engineering**: GDD, CDD, and Botta onset features
+- **Multiple PFT support**: Pre-configured for DB, EN, and GR plant types
+- **Easy-to-use CLI**: Simple command-line interface
+- **Cross-validation**: Leave-site-out and year-based splitting
+- **Hyperparameter tuning**: Integration with Optuna
+- **GPU acceleration**: CUDA support for faster training
+- **Rich visualizations**: Built-in plotting for model evaluation
+
 Installation
 ------------
 
-### Prerequisites
+Prerequisites
+~~~~~~~~~~~~~
 
 - Python 3.8 or higher
 - CUDA-capable GPU (optional, for faster training)
 - Git
 
-### Quick Install
+Quick Install
+~~~~~~~~~~~~~
 
 1. **Install uv package manager**:
 
@@ -65,7 +71,7 @@ Installation
 
       git clone https://github.com/kardaneh/PhenoNN.git
       cd PhenoNN
-      uv venv
+      uv venv --python 3.8
       source .venv/bin/activate
       uv pip install -e .
 
@@ -74,72 +80,259 @@ Installation
    .. code-block:: bash
 
       python -c "import phenonn; print(phenonn.__version__)"
-      phenonn --help
+      phenonn --version
 
-For detailed installation instructions, including CUDA setup and troubleshooting,
-see the `Installation Guide <https://phenonn.readthedocs.io/en/latest/installation.html>`_.
+For detailed installation instructions, see the
+`Installation Guide <https://phenonn.readthedocs.io/en/latest/installation.html>`_.
 
 Quick Start
 -----------
 
-### Predict GCC using pre-trained models
+Per-site CSV Format
+~~~~~~~~~~~~~~~~~~~
 
-The simplest way to use PhenoNN is to predict GCC using pre-trained models:
-
-.. code-block:: bash
-
-   # Predict for Grassland (GR) PFT using example data
-   phenonn predict GR 4 ./example
-
-   # Predict for Deciduous Broadleaf (DB) PFT
-   phenonn predict DB 8 ./example
-
-   # Predict for Evergreen Needleleaf (EN) PFT
-   phenonn predict EN 6 ./example
-
-The predictions will be saved as `gcc_pred_test_{PFT}_mfull.csv`.
-
-### Train your own models
-
-Train new models for your specific PFT:
+Train a model using individual site CSV files:
 
 .. code-block:: bash
 
-   # Train a model for DB PFT with 8 features
-   phenonn train full DB 8 gcc_lowess 8 --epochs 100
+   # Train an LSTM model
+   phenonn train --data_dir ./data/DB/ --type lstm --hidden_size 128 --num_epochs 50
 
-   # Train with hyperparameter tuning
-   phenonn hp-tuning full GR 8 gcc_lowess 4
+   # Predict using trained model
+   phenonn predict --checkpoint ./runs/exp01/checkpoints/best_model.pth --data_dir ./data/DB/
 
-### Python API
+Flat CSV Format
+~~~~~~~~~~~~~~~
+
+Train a model using flat feature and target CSV files:
+
+.. code-block:: bash
+
+   # Train on flat CSV format
+   phenonn train-flat \
+       --features_csv data/features.csv \
+       --target_csv data/targets.csv \
+       --type lstm \
+       --hidden_size 128
+
+   # Predict on flat CSV format
+   phenonn predict-flat \
+       --checkpoint runs/exp_flat/checkpoints/best_model.pth
+
+Python API
+~~~~~~~~~~
 
 Use PhenoNN programmatically in your Python code:
 
 .. code-block:: python
 
-   from phenonn import run_lstm_pred, run_lstm_train
-   from phenonn import LSTM, PhenoDataset
+   import phenonn
+   import torch
+   from phenonn.models import RNN_LSTM
+   from phenonn.data import PhenoCamDataset
+   from phenonn.training.train import run_training
 
-   # Make predictions
-   run_lstm_pred(
-       m='full',
-       pft='GR',
-       batch_size=4,
-       input_path='./example'
+   # Load data
+   dataset = PhenoCamDataset(
+       site_files=['DB_site1.csv', 'DB_site2.csv'],
+       norm_stats=norm_stats,
+       pft_list=['DB', 'EN', 'GR']
    )
 
-   # Train a model
-   run_lstm_train(
-       m='full',
-       pft='DB',
-       nr_features=8,
-       target='gcc_lowess',
-       batch_size=8
+   # Create model
+   model = RNN_LSTM(
+       feature_channel=31,
+       output_channel=1,
+       hidden_size=64,
+       num_layers=2
    )
 
-   # Load data and model directly
-   dataset = PhenoDataset('./example/testdata/', 'GR')
-   model = LSTM(target_size=1, input_size=8, hidden_size=64, num_layers=1)
+   # Train model
+   run_training()
+
+Data Format
+-----------
+
+Per-site CSV Format
+~~~~~~~~~~~~~~~~~~~
+
+Each site should have its own CSV file with the naming pattern: `{PFT}_{site}.csv`
+
+**Required columns**:
+- year, doy (day of year)
+- tmin, tmax (temperature)
+- daylength, vpd, prcp, srad, swe
+- mat, map (static features)
+
+**Optional columns**:
+- lat, lon, elev (site features)
+- clay, sand, silt, ph (soil features)
+
+Flat CSV Format
+~~~~~~~~~~~~~~~
+
+For large-scale experiments, use flat CSV files:
+
+**features.csv** - Daily data with columns:
+- site_id, date, year, month, day
+- pft1_frac..pft15_frac (PFT fractions)
+- tmin, tmax, daylength, prcp, srad, vpd, swe
+
+**targets.csv** - Sparse LAI observations:
+- site_id, date, year, month, day, LAI
+
+For detailed data preparation, see the
+`Data Preparation Guide <https://phenonn.readthedocs.io/en/latest/data_preparation.html>`_.
+
+Command Line Interface
+----------------------
+
+Main Commands
+~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Show all commands
+   phenonn --help
+
+   # Train on per-site CSVs
+   phenonn train --data_dir PATH --type lstm --hidden_size 64
+
+   # Train on flat CSVs
+   phenonn train-flat --features_csv FILE --target_csv FILE
+
+   # Predict with per-site CSVs
+   phenonn predict --checkpoint FILE --data_dir PATH
+
+   # Predict with flat CSVs
+   phenonn predict-flat --checkpoint FILE
+
+Train Command Options
+~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Model options
+   --type {lstm,gru,transformer,bitransformer}
+   --hidden_size INT          # LSTM/GRU hidden size (default: 32)
+   --num_layers INT           # Number of layers (default: 2)
+   --seq_length INT           # Window length in days (default: 365)
+
+   # Data options
+   --data_dir PATH            # Directory with site CSVs
+   --split_mode {site,year}   # Split strategy (default: site)
+   --val_fraction FLOAT       # Fraction for validation (default: 0.2)
+
+   # Training options
+   --num_epochs INT           # Number of epochs (default: 50)
+   --batch_size INT           # Batch size (default: 32)
+   --learning_rate FLOAT      # Learning rate (default: 2e-3)
+   --patience INT             # Early stopping patience (default: 10)
+
+Predict Command Options
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   --checkpoint PATH          # Path to best_model.pth
+   --data_dir PATH            # Directory with site CSVs
+   --predict_years YEARS      # Comma-separated years or 'all'
+   --predict_sites {val,train,all}  # Which sites to predict
+   --output_csv PATH          # Output file path
+
+Examples
+--------
+
+Training Examples
+~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Basic LSTM training
+   phenonn train --data_dir ./data/DB/ --type lstm --num_epochs 100
+
+   # Transformer with year-based split
+   phenonn train \
+       --data_dir ./data/DB/ \
+       --type transformer \
+       --split_mode year \
+       --train_years 2000-2020 \
+       --val_years 2021-2022 \
+       --embed_size 64 \
+       --nhead 4
+
+   # Flat CSV training with Transformer
+   phenonn train-flat \
+       --features_csv data/features.csv \
+       --target_csv data/targets.csv \
+       --type transformer \
+       --seq_length 720 \
+       --num_epochs 100
+
+Prediction Examples
+~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   # Predict on validation sites
+   phenonn predict \
+       --checkpoint runs/exp01/checkpoints/best_model.pth \
+       --data_dir ./data/DB/
+
+   # Predict on all sites for specific years
+   phenonn predict \
+       --checkpoint runs/exp01/checkpoints/best_model.pth \
+       --data_dir ./data/DB/ \
+       --predict_sites all \
+       --predict_years 2022,2023
+
+   # Flat CSV prediction
+   phenonn predict-flat \
+       --checkpoint runs/exp_flat/checkpoints/best_model.pth
+
+Python Examples
+~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   import torch
+   from phenonn.models import RNN_LSTM, EncoderTorch
+   from phenonn.data import PhenoCamDataset, LAIDataset
+   from phenonn.utils import Logger
+
+   # Create LSTM model
+   model = RNN_LSTM(
+       feature_channel=31,
+       output_channel=1,
+       hidden_size=128,
+       num_layers=2
+   )
+
+   # Create Transformer model
+   model = EncoderTorch(
+       feature_channel=31,
+       output_channel=1,
+       embed_size=64,
+       num_layers=4,
+       heads=8,
+       seq_length=365
+   )
+
+   # Dataset for per-site CSVs
+   dataset = PhenoCamDataset(
+       site_files=['DB_site1.csv', 'DB_site2.csv'],
+       norm_stats=norm_stats,
+       pft_list=['DB', 'EN', 'GR'],
+       seq_length=365
+   )
+
+   # Dataset for flat CSVs
+   dataset = LAIDataset(
+       features_csv='features.csv',
+       target_csv='targets.csv',
+       norm_stats=norm_stats,
+       seq_length=720
+   )
 
 Project Structure
 -----------------
@@ -147,118 +340,39 @@ Project Structure
 .. code-block:: text
 
    PhenoNN/
-   ├── phenonn/                 # Main package
-   │   ├── __init__.py         # Package initialization
-   │   ├── version.py          # Version information
-   │   ├── cli.py              # Command-line interface
-   │   ├── lstm.py             # LSTM model definition
-   │   ├── lstm_train.py       # Training functions
-   │   ├── lstm_pred.py        # Prediction functions
-   │   ├── lstm_hp_tuning.py   # Hyperparameter tuning
-   │   └── dataloader_phenodata.py  # Data loading and preprocessing
-   ├── example/                # Example data and models
-   │   ├── testdata/           # Test climate data
-   │   ├── lstm_models/        # Pre-trained models
-   │   └── gcc_rcc_mins_site_veg.csv  # Site minima
-   ├── doc/                    # Documentation
-   ├── tests/                  # Unit tests
-   ├── pyproject.toml          # Project configuration
-   └── README.rst              # This file
-
-Input Data Format
------------------
-
-PhenoNN expects climate data in CSV format with daily time series. Each site should have its own file:
-
-- **File naming**: `{PFT}_{site}.csv` (e.g., `GR_bullshoals.csv`)
-- **Time span**: Minimum 2 years of data to predict 1 year of GCC
-- **Required variables**: tmin, tmax, daylength, vpd, swa, radiation, mat, map
-
-For detailed data preparation instructions, see the `Data Preparation Guide <https://phenonn.readthedocs.io/en/latest/data_preparation.html>`_.
-
-Command Line Interface
-----------------------
-
-PhenoNN provides a unified CLI with three main commands:
-
-### Predict
-
-.. code-block:: bash
-
-   phenonn predict [PFT] [BATCH_SIZE] [INPUT_PATH] [OPTIONS]
-
-Options:
-- `--m`: Model type (full or block size, default: full)
-
-### Train
-
-.. code-block:: bash
-
-   phenonn train [M] [PFT] [NR_FEATURES] [TARGET] [BATCH_SIZE] [OPTIONS]
-
-Options:
-- `--epochs`: Number of epochs (default: 150)
-- `--learning-rate`: Learning rate (default: 0.01)
-- `--hidden-size`: LSTM hidden size (default: 64)
-- `--dropout`: Dropout rate (default: 0.0)
-- `--patience`: Early stopping patience (default: 30)
-
-### Hyperparameter Tuning
-
-.. code-block:: bash
-
-   phenonn hp-tuning [M] [PFT] [NR_FEATURES] [TARGET] [BATCH_SIZE]
-
-Examples
---------
-
-### Basic prediction
-
-.. code-block:: bash
-
-   # Predict GCC for Grassland sites
-   phenonn predict GR 4 ./example
-
-   # Output saved to: gcc_pred_test_GR_mfull.csv
-
-### Training a model
-
-.. code-block:: bash
-
-   # Train a model for DB PFT with custom parameters
-   phenonn train full DB 8 gcc_lowess 8 \
-       --epochs 200 \
-       --learning-rate 0.005 \
-       --hidden-size 128 \
-       --dropout 0.2 \
-       --patience 50
-
-### Hyperparameter optimization
-
-.. code-block:: bash
-
-   # Run hyperparameter tuning for GR PFT
-   phenonn hp-tuning full GR 8 gcc_lowess 4
-
-### Python scripting
-
-.. code-block:: python
-
-   import phenonn
-   import matplotlib.pyplot as plt
-
-   # Load pre-trained model
-   from phenonn import LSTM
-   model = LSTM(target_size=1, input_size=8, hidden_size=64, num_layers=1)
-   model.load_state_dict(torch.load('example/lstm_models/mfull_GR_8f_0'))
-
-   # Make predictions
-   predictions = model(test_data)
-
-   # Plot results
-   plt.plot(predictions.detach().numpy())
-   plt.title('GCC Predictions')
-   plt.show()
+   ├── phenonn/                      # Main package
+   │   ├── __init__.py              # Package initialization
+   │   ├── version.py               # Version information
+   │   ├── cli.py                   # Command-line interface
+   │   ├── data/                    # Data handling
+   │   │   ├── dataset.py           # Per-site CSV dataset
+   │   │   ├── dataset_flat.py      # Flat CSV dataset
+   │   │   ├── feature_engineering.py  # GDD, CDD features
+   │   │   └── normalization.py     # Normalization utilities
+   │   ├── models/                  # Model architectures
+   │   │   ├── rnn.py               # LSTM, GRU models
+   │   │   ├── transformer.py       # Transformer models
+   │   │   └── fcn.py               # Fully connected networks
+   │   ├── training/                # Training logic
+   │   │   ├── train.py             # Per-site CSV training
+   │   │   ├── train_flat.py        # Flat CSV training
+   │   │   └── hp_tuning.py         # Hyperparameter tuning
+   │   ├── prediction/              # Prediction logic
+   │   │   ├── predict.py           # Per-site CSV prediction
+   │   │   └── predict_flat.py      # Flat CSV prediction
+   │   └── utils/                   # Utility modules
+   │       ├── logger.py            # Logging utilities
+   │       ├── diagnostics.py       # Plotting functions
+   │       ├── evaluater.py         # Loss functions
+   │       └── wrappers.py          # Model wrappers
+   ├── example/                     # Example data
+   │   ├── testdata/                # Test climate data
+   │   ├── lstm_models/             # Pre-trained models
+   │   └── *.csv                    # Example CSV files
+   ├── doc/                         # Documentation
+   ├── tests/                       # Unit tests
+   ├── pyproject.toml               # Project configuration
+   └── README.rst                   # This file
 
 Documentation
 -------------
@@ -267,23 +381,28 @@ Full documentation is available at: https://phenonn.readthedocs.io/
 
 - `Installation Guide <https://phenonn.readthedocs.io/en/latest/installation.html>`_
 - `Quickstart <https://phenonn.readthedocs.io/en/latest/quickstart.html>`_
-- `API Reference <https://phenonn.readthedocs.io/en/latest/api/modules.html>`_
 - `Data Preparation <https://phenonn.readthedocs.io/en/latest/data_preparation.html>`_
+- `Training Guide <https://phenonn.readthedocs.io/en/latest/training.html>`_
+- `Prediction Guide <https://phenonn.readthedocs.io/en/latest/prediction.html>`_
+- `API Reference <https://phenonn.readthedocs.io/en/latest/api/modules.html>`_
 
-To build the documentation locally:
+Build documentation locally:
 
 .. code-block:: bash
 
    cd doc
+   pip install -r requirements.txt  # or uv pip install sphinx sphinx-rtd-theme
    make html
    firefox build/html/index.html
 
 Contributing
 ------------
 
-Contributions are welcome! Please see our `Contributing Guide <https://phenonn.readthedocs.io/en/latest/contributing.html>`_ for details.
+Contributions are welcome! Please see our
+`Contributing Guide <https://phenonn.readthedocs.io/en/latest/contributing.html>`_.
 
-### Development Setup
+Development Setup
+~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
@@ -292,21 +411,53 @@ Contributions are welcome! Please see our `Contributing Guide <https://phenonn.r
    cd PhenoNN
 
    # Install with development dependencies
-   uv venv
+   uv venv --python 3.8
    source .venv/bin/activate
    uv pip install -e ".[dev]"
 
    # Run tests
-   pytest tests/
+   pytest tests/ # not yet implemented
 
    # Check code style
-   black phenonn/
-   ruff check phenonn/
+   pre-commit run --all-files
+
+   # Build documentation
+   cd doc && make html
+
+Testing
+~~~~~~~
+
+.. code-block:: bash
+
+   # Run all tests
+   pytest tests/
+
+   # Run specific test file
+   pytest tests/test_dataset.py
+
 
 License
 -------
 
-This project is licensed under the BSD License - see the `LICENSE <https://github.com/kardaneh/PhenoNN/blob/main/LICENSE>`_ file for details.
+This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+International License (CC BY-NC-SA 4.0).
+
+You are free to:
+- **Share** — copy and redistribute the material in any medium or format
+- **Adapt** — remix, transform, and build upon the material
+
+Under the following terms:
+- **Attribution** — You must give appropriate credit, provide a link to the license,
+  and indicate if changes were made.
+- **NonCommercial** — You may not use the material for commercial purposes.
+- **ShareAlike** — If you remix, transform, or build upon the material, you must
+  distribute your contributions under the same license.
+
+.. image:: https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png
+   :target: https://creativecommons.org/licenses/by-nc-sa/4.0/
+   :alt: CC BY-NC-SA 4.0
+
+For more details, see: https://creativecommons.org/licenses/by-nc-sa/4.0/
 
 Citation
 --------
@@ -316,26 +467,28 @@ If you use PhenoNN in your research, please cite:
 .. code-block:: bibtex
 
    @software{ardaneh_phenonn_2024,
-     author = {Ardaneh, Kazem},
+     author = {Ardaneh, Kazem and Barbu, Stefan},
      title = {PhenoNN: Deep Learning for Phenology Prediction},
      year = {2024},
      url = {https://github.com/kardaneh/PhenoNN},
+     doi = {10.5281/zenodo.xxxxxxx}
    }
 
 Acknowledgments
 ---------------
 
-- The IPSL-AID team for inspiration and project structure
-- PyTorch team for the deep learning framework
+- CNRS / IPSL / Sorbonne University for institutional support
+- The PyTorch team for the deep learning framework
 - All contributors and users of PhenoNN
 
 Contact
 -------
 
 - **Author**: Kazem Ardaneh
-- **Email**: kazem.arrdaneh@gmail.com
+- **Email**: kardaneh@ipsl.fr
 - **GitHub**: https://github.com/kardaneh
+- **Institution**: IPSL / CNRS / Sorbonne University
 
 ---
 
-**PhenoNN** - Making phenology prediction accessible with deep learning 🚀
+**PhenoNN** - Making phenology prediction accessible with deep learning.

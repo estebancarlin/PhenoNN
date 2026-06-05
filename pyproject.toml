@@ -50,8 +50,6 @@ dependencies = [
     "scikit-learn>=1.3.2",
     "netcdf4>=1.7.2",
     "h5netcdf>=1.1.0",
-    "seaborn>=0.13.2",
-    "pre-commit>=3.5.0",
 ]
 
 # FIX: Move version dynamic to tool.hatch section
