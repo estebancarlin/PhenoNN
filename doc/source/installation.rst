@@ -5,6 +5,7 @@ Prerequisites
 -------------
 
 - Python 3.8 or higher
+- PyTorch 2.4.0 or higher
 - CUDA-capable GPU (optional, for faster training)
 - Git (for cloning the repository)
 
@@ -69,7 +70,7 @@ Installing PhenoNN
 
    .. code-block:: bash
 
-      uv venv
+      uv venv --python 3.8 # or 3.9, 3.10, 3.11, 3.12
 
    This creates a virtual environment in the ``.venv`` directory.
 
@@ -77,11 +78,8 @@ Installing PhenoNN
 
    .. code-block:: bash
 
-      # On Linux/macOS
+      # Linux/macOS
       source .venv/bin/activate
-
-      # On Windows
-      .venv\Scripts\activate
 
    You should see ``(PhenoNN)`` appear at the beginning of your terminal prompt.
 
@@ -109,7 +107,7 @@ Installing PhenoNN
 
    .. code-block:: bash
 
-      uv pip install -e ".[docs,dev]"
+      uv pip install -e ".[ci,docs,dev]"
 
 Verification
 ------------
@@ -121,8 +119,9 @@ Verify the installation by running:
    # Check Python version
    python --version
 
-   # Check PhenoNN version
-   python -c "import phenonn; print(phenonn.__version__)"
+   # Check PhenoNN installation
+   python  tests/test_phenonn_installation.py
+   # Should print "SUCCESS! PhenoNN is fully installed and ready to use!"
 
    # Check CLI
    phenonn --help
@@ -163,26 +162,6 @@ If you installed with extras:
 - **docs**: Sphinx and related packages for building documentation
 - **dev**: Development tools (pre-commit, ruff, pytest)
 
-CUDA Support (Optional)
------------------------
-
-If you have a CUDA-capable GPU and want GPU acceleration:
-
-.. code-block:: bash
-
-   # For CUDA 11.8
-   uv pip install torch --index-url https://download.pytorch.org/whl/cu118
-
-   # For CUDA 12.1
-   uv pip install torch --index-url https://download.pytorch.org/whl/cu121
-
-Verify CUDA is available:
-
-.. code-block:: bash
-
-   python -c "import torch; print(torch.cuda.is_available())"
-
-Should return ``True`` if CUDA is properly configured.
 
 Troubleshooting
 ---------------

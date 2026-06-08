@@ -7,7 +7,17 @@ PhenoNN is a deep learning framework for phenology prediction using LSTM, GRU,
 and Transformer models. It predicts Green Chromatic Coordinate (GCC) and Leaf
 Area Index (LAI) from climate data, supporting multiple plant functional types
 (PFTs) including Deciduous Broadleaf (DB), Evergreen Needleleaf (EN), and
-Grassland (GR).
+Grassland (GR). PhenoNN has been developed in the context of the **AI4PEX project** (Research Focus LAND).
+AI4PEX is focused on enhancing our understanding of how terrestrial ecosystems respond to climate change
+and the feedback of increased atmospheric CO2 levels to the climate system. The project aims to reduce uncertainties
+and enhance process representation, namely:
+
+- **Hybrid Modelling and History Matching**: to better predict the instantaneous vegetation responses to water and heat stress.
+- **Leverage Deep Learning**: approaches, such as Long-Short Term Memory networks, to simulate phenology and enhance online deep learning frameworks to represent plant carbon dynamics and explore tree mortality drivers.
+- **Temperature Sensitivity of Decomposition**: Address the challenge of understanding how temperature affects soil decomposition, which is crucial for ecosystem carbon turnover and land-atmosphere carbon responses to warming.
+- **Land-Atmosphere Feedbacks**: Improve the representation of processes that control energy feedbacks to the atmosphere, including regional climate extremes and land carbon uptake, to reduce uncertainties in projected warming trends.
+
+By focusing on these areas, AI4PEX aims to provide a more accurate representation of ecosystem dynamics and feedbacks in climate models.
 
 .. |Python Version| image:: https://img.shields.io/badge/python-3.8%20%7C%203.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue.svg
    :target: https://www.python.org/
@@ -34,7 +44,7 @@ Table of Contents
 Features
 --------
 
-- **Multiple architectures**: LSTM, GRU, and Transformer models
+- **Multiple architectures**: LSTM, LSTM with Attention, GRU, and Transformer models
 - **Flexible data formats**: Per-site CSV or flat CSV (features + targets)
 - **Comprehensive feature engineering**: GDD, CDD, and Botta onset features
 - **Multiple PFT support**: Pre-configured for DB, EN, and GR plant types
@@ -50,7 +60,8 @@ Installation
 Prerequisites
 ~~~~~~~~~~~~~
 
-- Python 3.8 or higher
+- Python 3.8 or higher # (3.8, 3.9, 3.10, 3.11, 3.12)
+- PyTorch 1.10 or higher
 - CUDA-capable GPU (optional, for faster training)
 - Git
 
@@ -71,16 +82,16 @@ Quick Install
 
       git clone https://github.com/kardaneh/PhenoNN.git
       cd PhenoNN
-      uv venv --python 3.8
+      uv venv --python 3.8 # or 3.9, 3.10, 3.11, 3.12
       source .venv/bin/activate
-      uv pip install -e .
+      uv pip install -e . # or uv pip install -e ".[ci,dev]" for development dependencies
 
 3. **Verify installation**:
 
    .. code-block:: bash
 
-      python -c "import phenonn; print(phenonn.__version__)"
-      phenonn --version
+      python tests/test_phenonn_installation.py
+      # Should print "SUCCESS! PhenoNN is fully installed and ready to use!"
 
 For detailed installation instructions, see the
 `Installation Guide <https://phenonn.readthedocs.io/en/latest/installation.html>`_.
@@ -429,6 +440,9 @@ Testing
 
 .. code-block:: bash
 
+   # Check the installation
+   python tests/test_phenonn_installation.py
+
    # Run all tests
    pytest tests/
 
@@ -467,7 +481,7 @@ If you use PhenoNN in your research, please cite:
 .. code-block:: bibtex
 
    @software{ardaneh_phenonn_2024,
-     author = {Ardaneh, Kazem and Barbu, Stefan},
+     author = {Barbu, Stefan and Ardaneh, Kazem},
      title = {PhenoNN: Deep Learning for Phenology Prediction},
      year = {2024},
      url = {https://github.com/kardaneh/PhenoNN},
@@ -478,7 +492,7 @@ Acknowledgments
 ---------------
 
 - CNRS / IPSL / Sorbonne University for institutional support
-- The PyTorch team for the deep learning framework
+- Max-Planck-Institute for Biogeochemistry Jena
 - All contributors and users of PhenoNN
 
 Contact
