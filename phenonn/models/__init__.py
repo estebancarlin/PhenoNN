@@ -12,11 +12,7 @@ from .rnn import RNN_LSTM, RNN_GRU
 from .fcn import FCN
 from .transformer import EncoderTorch
 from .transformerbis import (
-    SimpleLSTM,
-    TransformerNTS,
-    SimpleTransformer,
     CombinedModel,
-    SimpleNetwork,
     BiTransformer,
 )
 from .linear_baseline import (
@@ -29,11 +25,7 @@ __all__ = [
     "RNN_GRU",
     "FCN",
     "EncoderTorch",
-    "SimpleLSTM",
-    "TransformerNTS",
-    "SimpleTransformer",
     "CombinedModel",
-    "SimpleNetwork",
     "BiTransformer",
     "LinearBaseline",
     "PerDayLinearBaseline",
