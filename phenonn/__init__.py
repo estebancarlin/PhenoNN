@@ -40,11 +40,7 @@ from .data.feature_engineering import add_derived_features
 from phenonn.models.rnn import RNN_LSTM, RNN_GRU
 from phenonn.models.transformer import EncoderTorch
 from phenonn.models.transformerbis import (
-    SimpleLSTM,
-    TransformerNTS,
-    SimpleTransformer,
     CombinedModel,
-    SimpleNetwork,
     BiTransformer,
 )
 
@@ -78,11 +74,7 @@ __all__ = [
     "RNN_LSTM",
     "RNN_GRU",
     "EncoderTorch",
-    "SimpleLSTM",
-    "TransformerNTS",
-    "SimpleTransformer",
     "CombinedModel",
-    "SimpleNetwork",
     "BiTransformer",
     # Training
     "run_training",

@@ -5,12 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "phenonn"
 version = "0.1.0"
-description = "DeepPhenoMem - LSTM-based phenology prediction from climate data"
+description = "phenonn - phenology neurals networks"
 readme = "README.rst"
 requires-python = ">=3.8"
 
 authors = [
-    {name = "Kazem Ardaneh", email = "kazem.arrdaneh@gmail.com"}
+    {name = "Kazem Ardaneh", email = "kardaneh@ipsl.fr"},
+    {name = "Stefan Barbu", email = "stefan.barbu@polytechnique.edu"}
 ]
 
 license = {file = "LICENSE"}
@@ -70,14 +71,27 @@ dev = [
     "pre-commit>=3.5.0",
     "ruff>=0.15.0"
 ]
+
+# Compatible with python 3.8
+#docs = [
+#    "myst-parser>=3.0.1",
+#    "sphinx>=7.1.2",
+#    "sphinx-rtd-theme>=3.1.0",
+#    "sphinx-copybutton>=0.5.0",
+#    "sphinx-autodoc-typehints>=1.24.0",
+#]
+
+# Compatible with python 3.11
 docs = [
-    "myst-parser>=3.0.1",
-    "sphinx>=7.1.2",
+    "sphinx>=7.3,<8.0",
+    "myst-parser>=3.0.1,<4.0",
+    "docutils>=0.18,<0.21",
     "sphinx-rtd-theme>=3.1.0",
     "sphinx-copybutton>=0.5.0",
     "sphinx-autodoc-typehints>=1.24.0",
 ]
 
+# use when installing from zero, and not using module load
 ci = [
     "numpy>=1.20.0",
     "matplotlib>=3.3.0",
