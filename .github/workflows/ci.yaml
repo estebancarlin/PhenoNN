@@ -44,6 +44,8 @@ jobs:
           python -m unittest tests.test_utils
           python -m unittest tests.test_model_utils
           python -m unittest tests.test_transformerbis
+          python -m unittest tests.test_evaluater
+          python -m unittest tests.test_diagnostics
 
       - name: Check package builds
         run: uv build
