@@ -10,10 +10,6 @@ import unittest
 import torch
 import sys
 import os
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from phenonn.models.fcn import FCN, FCBlock
 
 
@@ -320,7 +316,6 @@ class TestFCN(unittest.TestCase):
     def test_model_serialization(self):
         """Test model can be saved and loaded."""
         import tempfile
-        import os
 
         model1 = FCN(
             feature_channel=self.feature_channel,

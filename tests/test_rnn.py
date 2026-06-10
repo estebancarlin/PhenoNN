@@ -10,10 +10,6 @@ import unittest
 import torch
 import sys
 import os
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 from phenonn.models.rnn import BaseRNN, RNN_LSTM, RNN_GRU
 from phenonn.utils.model_utils import ModelUtils
 
@@ -536,7 +532,6 @@ class TestRNNIntegration(unittest.TestCase):
             self.logger.info("💾 Testing model serialization")
 
         import tempfile
-        import os
 
         model1 = RNN_LSTM(
             feature_channel=6, output_channel=4, hidden_size=64, num_layers=2
