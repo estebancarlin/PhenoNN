@@ -1,204 +1,64 @@
 Installation
 ============
 
-Prerequisites
--------------
-
-- Python 3.8 or higher
-- PyTorch 2.4.0 or higher
-- CUDA-capable GPU (optional, for faster training)
-- Git (for cloning the repository)
-
-Installing uv Package Manager
------------------------------
-
-uv is a fast Python package installer and resolver. Install it using:
-
-.. code-block:: bash
-
-   # Install uv using curl (Linux/macOS)
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-
-You should see output similar to:
-
-.. code-block:: text
-
-   downloading uv 0.11.2 x86_64-unknown-linux-gnu
-   installing to /home/username/.local/bin
-     uv
-     uvx
-   everything's installed!
-
-Add uv to your PATH
-~~~~~~~~~~~~~~~~~~~
-
-To use uv from anywhere, add it to your shell configuration:
-
-.. code-block:: bash
-
-   # Add to ~/.bashrc
-   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-
-   # Reload your shell configuration
-   source ~/.bashrc
-
-Verify the installation:
-
-.. code-block:: bash
-
-   uv --version
-   which uv
-
-You should see:
-
-.. code-block:: text
-
-   uv 0.11.2
-   /home/username/.local/bin/uv
-
-Installing PhenoNN
-------------------
-
-1. **Clone the repository**:
-
-   .. code-block:: bash
-
-      git clone https://github.com/kardaneh/PhenoNN.git
-      cd PhenoNN
-
-2. **Create a virtual environment**:
-
-   .. code-block:: bash
-
-      uv venv --python 3.8 # or 3.9, 3.10, 3.11, 3.12
-
-   This creates a virtual environment in the ``.venv`` directory.
-
-3. **Activate the virtual environment**:
-
-   .. code-block:: bash
-
-      # Linux/macOS
-      source .venv/bin/activate
-
-   You should see ``(PhenoNN)`` appear at the beginning of your terminal prompt.
-
-4. **Install PhenoNN with all dependencies**:
-
-   For basic installation:
-
-   .. code-block:: bash
-
-      uv pip install -e .
-
-   For installation with documentation dependencies (for building docs):
-
-   .. code-block:: bash
-
-      uv pip install -e ".[docs]"
-
-   For installation with development dependencies (testing, formatting):
-
-   .. code-block:: bash
-
-      uv pip install -e ".[dev]"
-
-   To install all extras:
-
-   .. code-block:: bash
-
-      uv pip install -e ".[ci,docs,dev]"
-
-Verification
+Requirements
 ------------
 
-Verify the installation by running:
+- Python 3.8 or newer
+- PyTorch ``>=1.10,<2.5``
+- A CUDA-capable GPU is optional but recommended for global training
+- Git
+
+Standard Environment
+--------------------
 
 .. code-block:: bash
 
-   # Check Python version
-   python --version
-
-   # Check PhenoNN installation
-   python  tests/test_phenonn_installation.py
-   # Should print "SUCCESS! PhenoNN is fully installed and ready to use!"
-
-   # Check CLI
-   phenonn --help
-
-   # Check PyTorch installation
-   python -c "import torch; print(f'PyTorch {torch.__version__}')"
-
-You should see output similar to:
-
-.. code-block:: text
-
-   Python 3.10.12
-   0.1.0
-   usage: phenonn [-h] [--version] {predict,train,hp-tuning} ...
-   PyTorch 2.4.1
-
-Dependencies
-------------
-
-PhenoNN automatically installs the following main dependencies:
-
-- **PyTorch** >= 2.4.0: Deep learning framework
-- **NumPy** >= 1.20.0: Numerical computing
-- **Pandas** >= 2.0.3: Data manipulation
-- **Matplotlib** >= 3.3.0: Plotting and visualization
-- **Scikit-learn** >= 1.3.2: Machine learning metrics
-- **SciPy** >= 1.10.1: Scientific computing
-- **TQDM** >= 4.65.1: Progress bars
-- **Xarray** >= 2023.1.0: Labeled multi-dimensional arrays
-- **NetCDF4** >= 1.7.2: NetCDF file support
-- **Seaborn** >= 0.13.2: Statistical data visualization
-
-Optional Dependencies
----------------------
-
-If you installed with extras:
-
-- **docs**: Sphinx and related packages for building documentation
-- **dev**: Development tools (pre-commit, ruff, pytest)
-
-
-Troubleshooting
----------------
-
-If you encounter issues:
-
-**1. ModuleNotFoundError**
-
-Ensure your virtual environment is activated:
-
-.. code-block:: bash
-
+   git clone https://github.com/estebancarlin/PhenoNN.git
+   cd PhenoNN
+   python -m venv .venv
    source .venv/bin/activate
+   python -m pip install --upgrade pip
+   python -m pip install -e ".[ci,dev]"
+   python tests/test_phenonn_installation.py
 
-**2. PyTorch installation issues**
+The ``ci`` extra supplies the scientific runtime stack used by CI. The ``dev``
+extra supplies pre-commit and Ruff. Install pytest separately if you intend to
+use it; it is not currently included in ``dev``.
 
-Install PyTorch separately:
+Windows CUDA Environment
+------------------------
+
+The verified local GPU setup uses conda environment ``phenonn``, Python 3.11,
+and PyTorch 2.4.1+cu124. Install the CUDA PyTorch wheel appropriate for the
+machine before the editable package.
+
+.. code-block:: powershell
+
+   conda activate phenonn
+   python -m pip install -e ".[ci,dev]"
+   python -m pip install pytest
+   python tests/test_phenonn_installation.py
+
+Data Acquisition Extras
+-----------------------
+
+Install the data extra for CDS/ARCO and large-array tooling:
 
 .. code-block:: bash
 
-   uv pip uninstall torch
-   uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+   python -m pip install -e ".[ci,data]"
 
-**3. Permission errors**
+GEOV2 download requires ``GEODES_API_KEY``. ERA5 acquisition requires accepted
+licences and CDS credentials in ``~/.cdsapirc``.
 
-Use `--user` flag or ensure proper permissions:
-
-.. code-block:: bash
-
-   uv pip install --user -e .
-
-**4. Python version issues**
-
-PhenoNN requires Python 3.8+. Check your version:
+Documentation Environment
+-------------------------
 
 .. code-block:: bash
 
-   python --version
+   python -m pip install -r doc/requirements.txt
+   cd doc
+   make html
 
-For more help, visit the GitHub repository: https://github.com/kardaneh/PhenoNN
+The generated site is written to ``doc/build/html``.

@@ -9,7 +9,7 @@
 """
 LAI Prediction — Flat CSV Inference
 
-Loads a trained checkpoint from main_flat.py and predicts LAI at the 36
+Loads a checkpoint produced by ``phenonn train-flat`` and predicts LAI at the 36
 observation days (5th, 15th, 25th of each month) for every (site_id, year)
 pair in the chosen site set.
 
@@ -97,7 +97,9 @@ _OBS_DATES = [
 def parse_args():
     p = argparse.ArgumentParser(description="LAI flat-CSV inference")
     p.add_argument(
-        "--checkpoint", required=True, help="Path to best_model.pth from main_flat.py"
+        "--checkpoint",
+        required=True,
+        help="Path to best_model.pth from phenonn train-flat",
     )
     p.add_argument(
         "--features_csv",

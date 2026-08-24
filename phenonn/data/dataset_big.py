@@ -22,7 +22,7 @@ global statistics and allows training directly on raw values.
 Storage Layout
 --------------
 Features:
-    {features_dir}/features_{year}.csv
+    {features_dir}/feature_{year}.csv
 
     Contains daily feature records with approximately 365 (or 366) rows
     per site and year.
@@ -339,7 +339,7 @@ class BigLAIDataset(Dataset):
     Parameters
     ----------
     features_dir : str
-        Folder containing `features_{year}.csv` files.
+        Folder containing `feature_{year}.csv` files.
     target_dir : str
         Folder containing `target_{year}.csv` files.
     years : list of int
@@ -360,7 +360,7 @@ class BigLAIDataset(Dataset):
     -----
     All required data is loaded into memory at construction time. With ~500
     sites and ~3 years per epoch this stays in the few-hundred-MB range. The
-    expectation is that `main_big.py` creates a fresh dataset every epoch.
+    expectation is that `train_big.py` creates a fresh dataset every epoch.
     """
 
     def __init__(
@@ -507,7 +507,7 @@ class BigLAIDataset(Dataset):
                     n_dropped_feature_nan += 1
                     continue
 
-                # NaN in the target is OK: the training loop in main_big.py
+                # NaN in the target is OK: the training loop in train_big.py
                 # uses a NaN-aware MSE that masks out positions where target
                 # is NaN. We just count them for the report.
                 target_vals = yr_tgt["LAI"].values.astype(np.float32)

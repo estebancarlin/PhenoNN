@@ -1,5 +1,7 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
+.DS_Store
+.ruff_cache/
 .uv
 *.py[cod]
 *$py.class
@@ -72,6 +74,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+/doc/build/
 
 # PyBuilder
 .pybuilder/
@@ -164,6 +167,13 @@ cython_debug/
 test_plots/
 
 tests/tests_plots
+
+# Local browser/session exports
+/session-*.md
+/*_files/
+/API et outils*.html
+/How to download ERA5*.html
+/Portail Emploi CNRS*.html
 
 stats/*
 !stats/.gitkeep

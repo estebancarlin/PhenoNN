@@ -23,5 +23,5 @@ def get_versions():
         "version": __version__,
         "author": "Kazem Ardaneh",
         "email": "kazem.arrdaneh@gmail.com",
-        "url": "https://github.com/kardaneh/PhenoNN",
+        "url": "https://github.com/estebancarlin/PhenoNN",
     }

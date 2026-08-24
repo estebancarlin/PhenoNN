@@ -240,7 +240,7 @@ def compute_norm_stats(
     Returns
     -------
     dict
-        {feature_name: {"mean": float, "std": float}} for all 31 features + "LAI".
+        {feature_name: {"mean": float, "std": float}} for all 29 features + "LAI".
     """
     feat_df = _load_features(features_csv, site_ids=train_site_ids)
     tgt_df = _load_targets(target_csv, site_ids=train_site_ids)

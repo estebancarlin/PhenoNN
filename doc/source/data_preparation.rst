@@ -1,122 +1,91 @@
-Data Preparation
-================
+Data Formats
+============
 
-Input Data Format
------------------
+Per-Site CSV
+------------
 
-PhenoNN requires climate data in CSV format with daily time series. Each site should have its own CSV file.
-
-File Naming Convention
-----------------------
-
-Data files should follow the naming pattern: `{PFT}_{site}.csv`
-
-For example:
-- `GR_bullshoals.csv`
-- `DB_harvard.csv`
-- `EN_nippon.csv`
-
-CSV Structure
--------------
-
-The CSV file should contain the following columns:
-
-.. list-table:: Required Columns
-   :header-rows: 1
-
-   * - Column
-     - Description
-     - Units
-   * - year
-     - Year of observation
-     - YYYY
-   * - doy
-     - Day of year
-     - 1-365/366
-   * - tmin
-     - Daily minimum temperature
-     - °C
-   * - tmax
-     - Daily maximum temperature
-     - °C
-   * - daylength
-     - Daily daylength
-     - hours
-   * - vpd
-     - Vapor pressure deficit
-     - kPa
-   * - swa
-     - Soil water availability
-     - mm
-   * - radiation
-     - Shortwave radiation
-     - W/m²
-   * - mat
-     - Mean annual temperature
-     - °C
-   * - map
-     - Mean annual precipitation
-     - mm
-   * - snow
-     - Snow cover
-     - mm
-   * - sand
-     - Soil sand content
-     - %
-   * - silt
-     - Soil silt content
-     - %
-   * - clay
-     - Soil clay content
-     - %
-   * - ph
-     - Soil pH
-     - pH units
-   * - gcc
-     - Green Chromatic Coordinate
-     - unitless
-   * - rcc
-     - Red Chromatic Coordinate
-     - unitless
-   * - gcc_lowess
-     - GCC with LOWESS smoothing
-     - unitless
-   * - rcc_lowess
-     - RCC with LOWESS smoothing
-     - unitless
-
-Data Requirements
------------------
-
-- **Time span**: Minimum 2 years of data to predict 1 year of GCC
-- **Missing values**: Should be handled before input (interpolation recommended)
-- **Data range**: Should be within realistic bounds for each variable
-
-Directory Structure
--------------------
-
-For predictions, organize your data as:
+Files are named ``{PFT}_{site}.csv``. Daily rows must include:
 
 .. code-block:: text
 
-   your_data/
-   ├── testdata/
-   │   ├── GR_site1.csv
-   │   ├── GR_site2.csv
-   │   └── ...
-   ├── lstm_models/
-   │   ├── mfull_GR_8f_0
-   │   ├── mfull_GR_8f_1
-   │   └── ...
-   └── gcc_rcc_mins_site_veg.csv
+   year doy tmin tmax daylength vpd prcp srad swe mat map LAI
 
-Minimum GCC File
-----------------
+Rows are sorted by year and day of year. GDD, CDD, NCD, and Botta forcing
+features are derived internally. A target year normally requires at least one
+preceding year of daily history.
 
-The `gcc_rcc_mins_site_veg.csv` file should contain minimum GCC values for each site:
+Flat CSV
+--------
+
+``features.csv`` contains one daily row per site:
 
 .. code-block:: text
 
-   ,0,1,2,3,4
-   GR_bullshoals,GR_bullshoals,GR,site,0.287,0.487
-   DB_harvard,DB_harvard,DB,site,0.295,0.512
+   site_id date year month day
+   tmin tmax daylength prcp srad vpd swe
+   pft1_frac ... pft15_frac
+
+``date`` uses ``YYYYMMDD``. Seven phenology features are added internally,
+giving 29 model channels: 7 meteorological, 7 derived, and 15 PFT fractions.
+
+``targets.csv`` contains:
+
+.. code-block:: text
+
+   site_id date year month day LAI
+
+Each ``(site_id, year)`` requires 36 LAI rows corresponding to days 5, 15, and
+25 of each month.
+
+Streaming Yearly CSV
+--------------------
+
+``train-big`` expects:
+
+.. code-block:: text
+
+   FEATURES_DIR/feature_{year}.csv
+   TARGET_DIR/target_{year}.csv
+
+For target year ``Y``, both ``feature_{Y-1}.csv`` and ``feature_Y.csv`` are
+required. Rows must be contiguous by ``site_id``. IDs are expected to encode
+grid positions, for example ``pix_0900_01500``. The loader creates adjacent
+``.pixidx.npz`` indexes, so source directories must be writable.
+
+Global Selected-Site NetCDF
+---------------------------
+
+The global dataset expects:
+
+.. code-block:: text
+
+   ERA_DIR/ERA5_daily_pixelset_{year}.nc
+   TARGET_DIR/lai/LAI_dekadal_{year}.nc
+   TARGET_DIR/pft/PFTmap_{year}.nc
+   TARGET_DIR/CO2_annual.nc
+   selected_pixels_era5_valid.nc
+
+ERA files contain daily ``Tmin``, ``Tmax``, ``Tmean``, ``ssrd_sum``,
+``strd_sum``, ``tp_sum``, ``VPD_max``, ``VPD_mean``, ``Rn_tot``, ``PET``, and
+``SMI``. The target directory contains 36-date LAI, annual 15-PFT fractions,
+and annual CO2.
+
+Selection metadata includes ``site_id``, ``split``, ``is_primary``,
+``arco_chunk_id``, ``sample_weight``, and source-index traceability. Every
+yearly file must preserve canonical site order. Leap day is removed before
+720-day windows are formed.
+
+Splits
+------
+
+Global split codes are:
+
+.. code-block:: text
+
+   0 train
+   1 validation
+   2 test
+   3 buffer
+
+Auxiliaries are training-only. Validation and test metrics always use primary
+sites. Site splits test spatial transfer; year splits test temporal transfer.

@@ -6,69 +6,10 @@
 # To view a copy of this license, visit
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
 
-"""
-LAI Prediction — Training Pipeline
+"""Train LAI models from per-site ``{PFT}_{site}.csv`` files.
 
-This module implements a full training pipeline for Leaf Area Index (LAI)
-prediction from meteorological time series using deep learning models.
-
-The model predicts LAI at day *x* using a sliding window of the previous
-`seq_length` days (default: 365 days) of meteorological and auxiliary
-features. It supports multiple architectures including LSTM, GRU,
-Transformer, FCN, and linear baselines.
-
-The pipeline includes:
-- Site- or year-based dataset splitting
-- Feature engineering (meteorological, cyclic, static, PFT)
-- Optional per-site LAI normalization
-- Optional residual learning (predicting obs - pred)
-- Flexible sequence sampling (stride or random sampling)
-- Gradient-aware temporal loss (optional)
-- Early stopping and learning-rate scheduling
-- Diagnostic logging and training curves
-- Checkpointing of best model
-
-Supported models
------------------
-- LSTM
-- GRU
-- Transformer
-- FCN / FullyConnected
-- Linear
-- Linear-per-day
-- Bi-directional Transformer variants
-- 1-year sequence models (LSTM / BiTransformer)
-
-Typical usage
---------------
-Train an LSTM on all sites:
-
-    python -m phenocam.run_training \
-        --data_dir ./data/DB/ \
-        --type lstm \
-        --hidden_size 128 \
-        --num_layers 2 \
-        --num_epochs 50 \
-        --batch_size 64
-
-Train with year-based split:
-
-    python -m phenocam.run_training \
-        --data_dir ./data/DB/ \
-        --type transformer \
-        --split_mode year \
-        --train_years 2018,2019,2020 \
-        --val_years 2021 \
-        --embed_size 64 --nhead 4
-
-Notes
------
-- Normalization statistics are computed on training data only.
-- Validation can be performed on held-out sites or held-out years.
-- Loss functions include MSE, MAE, Huber, NMSE, and gradient-based losses.
-- The model can optionally predict full yearly sequences (365-day outputs).
-- Residual learning mode uses external predictions as input targets.
-
+Use ``phenonn train --help`` for options. Maintained examples and known legacy
+model limitations are documented in ``doc/source/training.rst``.
 """
 
 import os

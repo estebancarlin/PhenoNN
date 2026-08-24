@@ -54,12 +54,10 @@ autodoc_default_options = {
     "exclude-members": "__weakref__",
     "show-inheritance": True,
 }
-
 autosummary_generate = False
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 
-templates_path = ["_templates"]
 exclude_patterns = []
 
 # MathJax 3 configuration
@@ -96,5 +94,3 @@ html_theme_options = {
     "includehidden": True,
     "titles_only": False,
 }
-
-html_static_path = ["_static"]

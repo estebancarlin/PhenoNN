@@ -6,32 +6,10 @@
 # To view a copy of this license, visit
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
 
-"""
-LAI Prediction — Year-by-Year Inference
+"""Run year-by-year inference from a ``phenonn train`` checkpoint.
 
-Loads a trained model checkpoint and predicts the full annual LAI curve.
-Supports both site-split and year-split models.
-
-Usage
------
-# Predict on validation sites, all available years:
-python -m phenocam.predict \
-    --checkpoint ./runs/exp01/checkpoints/best_model.pth \
-    --data_dir ./data/DB/
-
-# Predict on all sites, specific years:
-python -m phenocam.predict \
-    --checkpoint ./runs/exp01/checkpoints/best_model.pth \
-    --data_dir ./data/DB/ \
-    --predict_sites all \
-    --predict_years 2022,2023
-
-# Predict on training sites only:
-python -m phenocam.predict \
-    --checkpoint ./runs/exp01/checkpoints/best_model.pth \
-    --data_dir ./data/DB/ \
-    --predict_sites train \
-    --predict_years 2022
+Use ``phenonn predict --help`` for options and ``doc/source/prediction.rst``
+for executable examples.
 """
 
 import os

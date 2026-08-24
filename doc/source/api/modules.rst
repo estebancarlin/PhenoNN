@@ -1,162 +1,86 @@
-cat > doc/source/api/modules.rst << 'EOF'
 API Reference
 =============
 
-This page provides the complete API reference for PhenoNN.
-
-Main Package
-------------
-
-.. automodule:: phenonn
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-Data Module
------------
-
-.. automodule:: phenonn.data
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Data
+----
 
 .. automodule:: phenonn.data.dataset
    :members:
-   :undoc-members:
-   :show-inheritance:
-   :special-members: __getitem__, __len__
 
 .. automodule:: phenonn.data.dataset_flat
    :members:
-   :undoc-members:
-   :show-inheritance:
-   :special-members: __getitem__, __len__
+
+.. automodule:: phenonn.data.dataset_big
+   :members:
+
+.. automodule:: phenonn.data.dataset_netcdf
+   :members:
 
 .. automodule:: phenonn.data.feature_engineering
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-Models Module
--------------
-
-.. automodule:: phenonn.models
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Models
+------
 
 .. automodule:: phenonn.models.rnn
    :members:
-   :undoc-members:
-   :show-inheritance:
 
 .. automodule:: phenonn.models.transformer
    :members:
-   :undoc-members:
-   :show-inheritance:
 
 .. automodule:: phenonn.models.transformerbis
    :members:
-   :undoc-members:
-   :show-inheritance:
 
 .. automodule:: phenonn.models.fcn
    :members:
-   :undoc-members:
-   :show-inheritance:
 
 .. automodule:: phenonn.models.linear_baseline
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-Training Module
----------------
-
-.. automodule:: phenonn.training
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Training
+--------
 
 .. automodule:: phenonn.training.train
    :members:
-   :undoc-members:
-   :show-inheritance:
 
 .. automodule:: phenonn.training.train_flat
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-Prediction Module
------------------
-
-.. automodule:: phenonn.prediction
+.. automodule:: phenonn.training.train_big
    :members:
-   :undoc-members:
-   :show-inheritance:
+
+.. automodule:: phenonn.training.train_global
+   :members:
+
+Prediction and Evaluation
+-------------------------
 
 .. automodule:: phenonn.prediction.predict
    :members:
-   :undoc-members:
-   :show-inheritance:
 
 .. automodule:: phenonn.prediction.predict_flat
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-Utils Module
-------------
-
-.. automodule:: phenonn.utils
+.. automodule:: phenonn.prediction.evaluate_global
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-.. automodule:: phenonn.utils.logger
+.. automodule:: phenonn.prediction.evaluate_phenocam
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-.. automodule:: phenonn.utils.diagnostics
+.. automodule:: phenonn.prediction.compare_global
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-.. automodule:: phenonn.utils.evaluater
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: phenonn.utils.model_loader
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: phenonn.utils.model_utils
-   :members:
-   :undoc-members:
-   :show-inheritance:
+Utilities
+---------
 
 .. automodule:: phenonn.utils.wrappers
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-CLI Module
-----------
-
-.. automodule:: phenonn.cli
+.. automodule:: phenonn.utils.evaluater
    :members:
-   :undoc-members:
-   :show-inheritance:
 
-Version Module
---------------
-
-.. automodule:: phenonn.version
+.. automodule:: phenonn.utils.diagnostics
    :members:
-   :undoc-members:
-   :show-inheritance:
-EOF
+
+.. automodule:: phenonn.utils.model_loader
+   :members:

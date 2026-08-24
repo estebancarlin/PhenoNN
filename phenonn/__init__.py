@@ -93,7 +93,7 @@ __all__ = [
 
 # Package metadata
 __description__ = "LSTM-based phenology prediction from climate data"
-__url__ = "https://github.com/kardaneh/PhenoNN"
+__url__ = "https://github.com/estebancarlin/PhenoNN"
 
 # Set up logging
 

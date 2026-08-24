@@ -88,7 +88,7 @@ Data Layout
 -----------
 Feature files:
 
-    features_dir/features_{year}.csv
+    features_dir/feature_{year}.csv
 
 Target files:
 
@@ -118,7 +118,7 @@ Examples
 --------
 Train an LSTM model on a large spatial grid:
 
->>> python -m phenocam.run_train_big \
+>>> phenonn train-big \
 ...     --features_dir data/data_features \
 ...     --target_dir data/data_targets \
 ...     --row_min 900 --row_max 1099 \
@@ -208,9 +208,9 @@ def nan_safe_mse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
 
 def train_one_epoch(model, loader, criterion, optimizer, device, max_grad_norm):
     """
-    Drop-in replacement for main_flat.train_one_epoch using NaN-safe MSE.
+    Drop-in replacement for train_flat.train_one_epoch using NaN-safe MSE.
     `criterion` is accepted but ignored — kept in the signature so that the
-    rest of main_big.py doesn't need to change.
+    rest of train_big.py doesn't need to change.
     """
     model.train()
     total_weighted_loss, total_valid = 0.0, 0
@@ -236,7 +236,7 @@ def train_one_epoch(model, loader, criterion, optimizer, device, max_grad_norm):
 @torch.no_grad()
 def validate(model, loader, criterion, device):
     """
-    Drop-in replacement for main_flat.validate using NaN-safe MSE for the
+    Drop-in replacement for train_flat.validate using NaN-safe MSE for the
     loss and masking before computing RMSE / R².
     """
     model.eval()
@@ -302,12 +302,12 @@ def _remove_args(parser, dests):
 
 def parse_args():
     """
-    Reuse main_flat's _base_parser for model / loss / training args, but
+    Reuse train_flat's _base_parser for model / loss / training args, but
     *replace* the data-source args with the per-year-folder + grid-range form.
     """
     base = _base_parser("LAI training — big per-year corpus")
 
-    # Drop main_flat's CSV-path / split args (incompatible with the per-year
+    # Drop train_flat's CSV-path / split args (incompatible with the per-year
     # folder layout) so we can re-define them below with the right semantics.
     _remove_args(
         base,
@@ -326,7 +326,7 @@ def parse_args():
     base.add_argument(
         "--features_dir",
         required=True,
-        help="Folder containing features_{year}.csv files",
+        help="Folder containing feature_{year}.csv files",
     )
     base.add_argument(
         "--target_dir", required=True, help="Folder containing target_{year}.csv files"

@@ -52,13 +52,9 @@ path = "phenonn/version.py"
 [project.scripts]
 phenonn = "phenonn.cli:main"
 
-# Optional: Add separate scripts if you want them
-# phenonn-predict = "phenonn.cli:main_predict"
-# phenonn-train = "phenonn.cli:main_train"
-# phenonn-hp-tuning = "phenonn.cli:main_hp_tuning"
-
 [project.urls]
-Source = "https://github.com/kardaneh/PhenoNN"
+Source = "https://github.com/estebancarlin/PhenoNN"
+Upstream = "https://github.com/kardaneh/PhenoNN"
 
 [tool.pytest.ini_options]
 markers = ["long: marks tests as long (deselect with '-m \"not long\"')"]
@@ -67,6 +63,14 @@ markers = ["long: marks tests as long (deselect with '-m \"not long\"')"]
 members = ["tem"]
 
 [project.optional-dependencies]
+data = [
+    "aiohttp>=3.9.0",
+    "cdsapi>=0.7.7",
+    "dask[array]>=2023.1.0",
+    "scikit-learn>=1.3.2",
+    "scipy>=1.10.1",
+    "zarr>=2.18.0,<3.0",
+]
 dev = [
     "pre-commit>=3.5.0",
     "ruff>=0.15.0"

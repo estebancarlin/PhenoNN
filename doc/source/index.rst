@@ -1,24 +1,13 @@
-.. PhenoNN documentation master file
+PhenoNN Documentation
+=====================
 
-PhenoNN: Phenology Neural Networks
-==================================
+PhenoNN is a Python/PyTorch package for LAI and phenology modelling. Its primary
+workflow combines selected-site ERA5-Land forcing, GEOV2 LAI, annual ORCHIDEE
+PFT fractions, and atmospheric CO2. Per-site, flat-CSV, and streaming yearly-CSV
+workflows are also retained.
 
-PhenoNN is a deep learning package that uses LSTM networks to predict Green Chromatic Coordinate (GCC)
-from climate data. It supports multiple plant functional types (PFTs) including Deciduous Broadleaf (DB),
-Evergreen Needleleaf (EN), and Grassland (GR). PhenoNN has been developed in the context of the **AI4PEX project**.
-
-Key Features
-------------
-
-- **Multiple architectures**: LSTM, LSTM with Attention, GRU, and Transformer models
-- **Flexible data formats**: Per-site CSV or flat CSV (features + targets)
-- **Comprehensive feature engineering**: GDD, CDD, and Botta onset features
-- **Multiple PFT support**: Pre-configured for DB, EN, and GR plant types
-- **Easy-to-use CLI**: Simple command-line interface
-- **Cross-validation**: Leave-site-out and year-based splitting
-- **Hyperparameter tuning**: Integration with Optuna
-- **GPU acceleration**: CUDA support for faster training
-- **Rich visualizations**: Built-in plotting for model evaluation
+Start with :doc:`quickstart`. Use :doc:`global_pipeline` when rebuilding the
+audited global dataset from source products.
 
 .. toctree::
    :maxdepth: 2
@@ -33,9 +22,9 @@ Key Features
    :caption: User Guide
 
    data_preparation
+   global_pipeline
    training
    prediction
-   hyperparameter_tuning
 
 .. toctree::
    :maxdepth: 2

@@ -5,27 +5,10 @@
 # Attribution-NonCommercial-ShareAlike 4.0 International License.
 # To view a copy of this license, visit
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
-"""
-PhenoNN Command Line Interface
+"""Dispatch PhenoNN training, prediction, and evaluation commands.
 
-Usage examples:
-    # Train LSTM model (per-site CSV format)
-    phenonn train --data_dir ./data/DB/ --type lstm --hidden_size 128
-
-    # Train on flat CSVs
-    phenonn train-flat --features_csv features.csv --target_csv targets.csv
-
-    # Train big model with year-based split
-    phenonn train-big --data_dir ./data/DB/ --type transformer --split_mode year
-
-    # Predict (per-site CSV format)
-    phenonn predict --checkpoint ./runs/exp01/checkpoints/best_model.pth --data_dir ./data/DB/
-
-    # Predict on flat CSVs
-    phenonn predict-flat --checkpoint ./runs/exp_flat/checkpoints/best_model.pth
-
-    # Show version
-    phenonn --version
+Run ``phenonn --help`` for the command list and ``phenonn COMMAND --help`` for
+the authoritative options owned by each command parser.
 """
 
 import sys
@@ -46,8 +29,12 @@ def main():
         print("  train         Train model on per-site CSVs")
         print("  train-big     Train big model with year-based split")
         print("  train-flat    Train model on flat CSVs")
+        print("  train-global  Train model on selected-site NetCDF files")
         print("  predict       Run predictions on per-site CSVs")
         print("  predict-flat  Run predictions on flat CSVs")
+        print("  evaluate-global  Evaluate a global NetCDF checkpoint")
+        print("  evaluate-phenocam  Compare LAI predictions with Phenocam GCC")
+        print("  compare-global  Compare global training runs and evaluations")
         print("\nRun 'phenonn <command> --help' for command-specific options")
         return
 
@@ -90,6 +77,16 @@ def main():
         finally:
             sys.argv = original_argv
 
+    elif command == "train-global":
+        from phenonn.training.train_global import run_training_global
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            run_training_global()
+        finally:
+            sys.argv = original_argv
+
     elif command == "predict":
         from phenonn.prediction.predict import run_prediction
 
@@ -110,6 +107,36 @@ def main():
         finally:
             sys.argv = original_argv
 
+    elif command == "evaluate-global":
+        from phenonn.prediction.evaluate_global import evaluate_global
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            evaluate_global()
+        finally:
+            sys.argv = original_argv
+
+    elif command == "evaluate-phenocam":
+        from phenonn.prediction.evaluate_phenocam import evaluate_phenocam
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            evaluate_phenocam()
+        finally:
+            sys.argv = original_argv
+
+    elif command == "compare-global":
+        from phenonn.prediction.compare_global import compare_global
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            compare_global()
+        finally:
+            sys.argv = original_argv
+
     elif command in ["--help", "-h"]:
         print(f"PhenoNN version {__version__}")
         print("Usage: phenonn <command> [options]")
@@ -117,8 +144,12 @@ def main():
         print("  train         Train model on per-site CSVs")
         print("  train-flat    Train model on flat CSVs")
         print("  train-big     Train big model with year-based split")
+        print("  train-global  Train model on selected-site NetCDF files")
         print("  predict       Run predictions on per-site CSVs")
         print("  predict-flat  Run predictions on flat CSVs")
+        print("  evaluate-global  Evaluate a global NetCDF checkpoint")
+        print("  evaluate-phenocam  Compare LAI predictions with Phenocam GCC")
+        print("  compare-global  Compare global training runs and evaluations")
         print("\nRun 'phenonn <command> --help' for command-specific options")
 
     else:

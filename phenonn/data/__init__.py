@@ -48,6 +48,13 @@ from .dataset_big import (
     get_pixel_index,
 )
 
+from .dataset_netcdf import (
+    GlobalLAIDataset,
+    GLOBAL_ALL_FEATURES,
+    METEO_FEATURES as GLOBAL_METEO_FEATURES,
+    PFT_FEATURES as GLOBAL_PFT_FEATURES,
+)
+
 
 # Feature engineering
 from .feature_engineering import (
@@ -96,4 +103,8 @@ __all__ = [
     "BigLAIDataset",
     "generate_site_ids_from_range",
     "get_pixel_index",
+    "GlobalLAIDataset",
+    "GLOBAL_ALL_FEATURES",
+    "GLOBAL_METEO_FEATURES",
+    "GLOBAL_PFT_FEATURES",
 ]
