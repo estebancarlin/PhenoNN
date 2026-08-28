@@ -41,8 +41,16 @@ validation metrics. The run directory contains:
    history.json
    best_model.pth
 
-``history.json`` is rewritten after every epoch. There is currently no resume,
-early-stopping, scheduler, or TensorBoard integration in ``train-global``.
+``history.json`` is rewritten after every epoch. Add ``--wandb`` to monitor
+train and validation MSE/RMSE, validation R², learning rate, sample counts,
+epoch duration, and GPU utilization in Weights & Biases. Install the optional
+dependency with ``python -m pip install -e ".[tracking]"`` and authenticate
+interactively with ``wandb login``. API keys must never be committed or placed
+in training scripts.
+
+There is currently no resume, early-stopping, or scheduler integration in
+``train-global``. The best validation checkpoint is retained while later
+epochs continue.
 
 Per-Site Training
 -----------------

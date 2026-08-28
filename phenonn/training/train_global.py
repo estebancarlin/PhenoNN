@@ -6,6 +6,7 @@
 import argparse
 import json
 import random
+import time
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,13 @@ from phenonn.utils.wrappers import Every10DaysWrapper, permuteWrapper
 
 
 GLOBAL_MODEL_TYPES = ("lstm", "gru", "transformer", "bitransformer", "fcn")
+PRIVATE_WANDB_CONFIG = {
+    "era_dir",
+    "norm_stats",
+    "output_dir",
+    "selection",
+    "target_dir",
+}
 
 
 def parse_years(value):
@@ -142,6 +150,61 @@ def nan_safe_mse(prediction, target):
     return squared_error[valid].mean()
 
 
+def initialize_wandb(args, configuration, output_dir, model):
+    """Start optional W&B tracking without exposing local data paths."""
+    if not args.wandb:
+        return None
+    try:
+        import wandb
+    except ImportError as error:
+        raise RuntimeError(
+            'W&B monitoring requires `python -m pip install -e ".[tracking]"`.'
+        ) from error
+
+    tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+    public_configuration = {
+        key: value
+        for key, value in configuration.items()
+        if key not in PRIVATE_WANDB_CONFIG
+    }
+    run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity or None,
+        name=args.experiment,
+        group=args.wandb_group or None,
+        tags=tags or None,
+        mode=args.wandb_mode,
+        dir=str(output_dir),
+        config=public_configuration,
+    )
+    parameter_count = sum(
+        parameter.numel() for parameter in model.parameters() if parameter.requires_grad
+    )
+    run.config.update({"model_parameters": parameter_count}, allow_val_change=True)
+    run.define_metric("epoch")
+    for namespace in ("train/*", "validation/*", "optimizer/*", "runtime/*"):
+        run.define_metric(namespace, step_metric="epoch")
+    return run
+
+
+def wandb_epoch_metrics(record, learning_rate, epoch_seconds):
+    """Flatten one history record into stable W&B metric names."""
+    return {
+        "epoch": record["epoch"],
+        "train/mse": record["train"]["mse"],
+        "train/rmse": record["train"]["rmse"],
+        "train/n_valid": record["train"]["n_valid"],
+        "train/sites": record["train_sites"],
+        "train/years": len(record["train_years"]),
+        "validation/mse": record["validation"]["mse"],
+        "validation/rmse": record["validation"]["rmse"],
+        "validation/r2": record["validation"].get("r2", float("nan")),
+        "validation/n_valid": record["validation"]["n_valid"],
+        "optimizer/learning_rate": learning_rate,
+        "runtime/epoch_seconds": epoch_seconds,
+    }
+
+
 def run_epoch(model, loader, device, optimizer=None, max_grad_norm=1.0):
     training = optimizer is not None
     model.train(training)
@@ -253,10 +316,15 @@ def run_training_global(args=None):
     (output_dir / "config.json").write_text(
         json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
     )
+    wandb_run = initialize_wandb(args, configuration, output_dir, model)
+    if wandb_run is not None:
+        print(f"W&B run: {wandb_run.url or args.wandb_mode}", flush=True)
 
     history = []
     best_validation = float("inf")
+    best_epoch = 0
     for epoch in range(1, args.num_epochs + 1):
+        epoch_started = time.perf_counter()
         selected_sites = sample_sites_by_chunk(
             train_ids,
             train_chunks,
@@ -299,8 +367,17 @@ def run_training_global(args=None):
         }
         history.append(record)
         print(json.dumps(record), flush=True)
+        if wandb_run is not None:
+            wandb_run.log(
+                wandb_epoch_metrics(
+                    record,
+                    optimizer.param_groups[0]["lr"],
+                    time.perf_counter() - epoch_started,
+                )
+            )
         if validation_metrics["mse"] < best_validation:
             best_validation = validation_metrics["mse"]
+            best_epoch = epoch
             torch.save(
                 {
                     "model_state_dict": model.state_dict(),
@@ -314,6 +391,11 @@ def run_training_global(args=None):
         (output_dir / "history.json").write_text(
             json.dumps(history, indent=2) + "\n", encoding="utf-8"
         )
+    if wandb_run is not None:
+        wandb_run.summary["best_epoch"] = best_epoch
+        wandb_run.summary["best_validation_mse"] = best_validation
+        wandb_run.summary["best_validation_rmse"] = best_validation**0.5
+        wandb_run.finish()
     return model, history
 
 
@@ -349,6 +431,14 @@ def parse_args():
     parser.add_argument("--normalize", action="store_true")
     parser.add_argument("--norm-stats", default="")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--wandb", action="store_true")
+    parser.add_argument("--wandb-project", default="phenonn-global-lai")
+    parser.add_argument("--wandb-entity", default="")
+    parser.add_argument("--wandb-group", default="")
+    parser.add_argument("--wandb-tags", default="")
+    parser.add_argument(
+        "--wandb-mode", choices=("online", "offline", "disabled"), default="online"
+    )
     parsed = parser.parse_args()
     if parsed.normalize and not parsed.norm_stats:
         parser.error("--normalize requires --norm-stats")
