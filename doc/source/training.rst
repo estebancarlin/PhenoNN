@@ -20,7 +20,7 @@ Global Training
        --hidden-size 64 --num-layers 2 \
        --batch-size 32 --num-epochs 50
 
-Supported model types are ``lstm``, ``gru``, ``transformer``,
+Supported model types are ``lstm``, ``aelstm`` (LSTM with causal attention), ``gru``, ``transformer``,
 ``bitransformer``, and ``fcn``. All preserve the repository's model
 implementations and use ``Every10DaysWrapper``.
 

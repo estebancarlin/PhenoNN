@@ -19,6 +19,7 @@ class TestTrainGlobal(unittest.TestCase):
     def test_existing_models_keep_sparse_output_contract(self):
         settings = {
             "lstm": 4,
+            "aelstm": 4,
             "gru": 4,
             "transformer": 4,
             "bitransformer": 8,

@@ -9,6 +9,7 @@
 """Model architectures for RTnn."""
 
 from .rnn import RNN_LSTM, RNN_GRU
+from .aelstm import AELSTM
 from .fcn import FCN
 from .transformer import EncoderTorch
 from .transformerbis import (
@@ -23,6 +24,7 @@ from .linear_baseline import (
 __all__ = [
     "RNN_LSTM",
     "RNN_GRU",
+    "AELSTM",
     "FCN",
     "EncoderTorch",
     "CombinedModel",

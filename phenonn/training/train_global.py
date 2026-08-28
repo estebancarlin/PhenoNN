@@ -16,6 +16,7 @@ from netCDF4 import Dataset
 from torch.utils.data import DataLoader
 
 from phenonn.data.dataset_netcdf import GlobalLAIDataset
+from phenonn.models.aelstm import AELSTM
 from phenonn.models.fcn import FCN
 from phenonn.models.rnn import RNN_GRU, RNN_LSTM
 from phenonn.models.transformer import EncoderTorch
@@ -23,7 +24,7 @@ from phenonn.models.transformerbis import BiTransformer
 from phenonn.utils.wrappers import Every10DaysWrapper, permuteWrapper
 
 
-GLOBAL_MODEL_TYPES = ("lstm", "gru", "transformer", "bitransformer", "fcn")
+GLOBAL_MODEL_TYPES = ("lstm", "aelstm", "gru", "transformer", "bitransformer", "fcn")
 PRIVATE_WANDB_CONFIG = {
     "era_dir",
     "norm_stats",
@@ -73,6 +74,7 @@ def build_model(
     forward_expansion=4,
     dropout=0.0,
     dropout_trans=0.0,
+    dropout_att=0.0,
     feed_forward_trans=4,
     feed_forward_encoder=4,
 ):
@@ -83,6 +85,19 @@ def build_model(
             output_channel=1,
             hidden_size=hidden_size,
             num_layers=num_layers,
+        )
+    elif model_type == "aelstm":
+        base = AELSTM(
+            feature_channel=feature_channels,
+            output_channel=1,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            n_attn_blocks=2,
+            nhead=nhead,
+            ff_expansion=forward_expansion,
+            dropout=dropout,
+            dropout_att=dropout_att,
+            seq_length=seq_length,
         )
     elif model_type == "transformer":
         base = EncoderTorch(
@@ -136,6 +151,7 @@ def model_arguments(configuration, feature_channels):
         "forward_expansion": configuration.get("forward_expansion", 4),
         "dropout": configuration.get("dropout", 0.0),
         "dropout_trans": configuration.get("dropout_trans", 0.0),
+        "dropout_att": configuration.get("dropout_att", 0.0),
         "feed_forward_trans": configuration.get("feed_forward_trans", 4),
         "feed_forward_encoder": configuration.get("feed_forward_encoder", 4),
     }
@@ -417,6 +433,7 @@ def parse_args():
     parser.add_argument("--forward-expansion", type=int, default=4)
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--dropout-trans", type=float, default=0.0)
+    parser.add_argument("--dropout-att", type=float, default=0.0)
     parser.add_argument("--feed-forward-trans", type=int, default=4)
     parser.add_argument("--feed-forward-encoder", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=32)
