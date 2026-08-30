@@ -38,13 +38,10 @@ jobs:
         run: |
           source .venv/bin/activate
           python -m tests.test_phenonn_installation
-          python -m unittest tests.test_transformer
-          python -m unittest tests.test_rnn
           python -m unittest tests.test_fcn
           python -m unittest tests.test_utils
-          python -m unittest tests.test_model_utils
-          python -m unittest tests.test_transformerbis
-          python -m unittest tests.test_evaluater
+          python -m unittest tests.test_logger
+          python -m unittest tests.test_runner
           python -m unittest tests.test_diagnostics
 
       - name: Check package builds

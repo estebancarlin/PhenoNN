@@ -48,15 +48,6 @@ dependencies = [
 [tool.hatch.version]
 path = "phenonn/version.py"
 
-# FIX: Scripts entry points - must be strings in format "command = module:function"
-[project.scripts]
-phenonn = "phenonn.cli:main"
-
-# Optional: Add separate scripts if you want them
-# phenonn-predict = "phenonn.cli:main_predict"
-# phenonn-train = "phenonn.cli:main_train"
-# phenonn-hp-tuning = "phenonn.cli:main_hp_tuning"
-
 [project.urls]
 Source = "https://github.com/kardaneh/PhenoNN"
 

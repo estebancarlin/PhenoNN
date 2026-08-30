@@ -1,32 +1,16 @@
-# Copyright 2026 IPSL / CNRS / Sorbonne University
-# Authors: Kazem Ardaneh
-#
-# This work is licensed under the Creative Commons
-# Attribution-NonCommercial-ShareAlike 4.0 International License.
-# To view a copy of this license, visit
-# http://creativecommons.org/licenses/by-nc-sa/4.0/
-
 """Model architectures for RTnn."""
 
-from .rnn import RNN_LSTM, RNN_GRU
-from .fcn import FCN
-from .transformer import EncoderTorch
-from .transformerbis import (
-    CombinedModel,
-    BiTransformer,
-)
-from .linear_baseline import (
-    LinearBaseline,
-    PerDayLinearBaseline,
-)
+from phenonn.models.rnn import RNN_LSTM, RNN_GRU
+from phenonn.models.fcn import FCN
+from phenonn.models.transformer import Encoder
+from phenonn.models.transformer import EncoderTorch
+from phenonn.models.dimchangemodule import DimChange
 
 __all__ = [
     "RNN_LSTM",
     "RNN_GRU",
     "FCN",
+    "Encoder",
     "EncoderTorch",
-    "CombinedModel",
-    "BiTransformer",
-    "LinearBaseline",
-    "PerDayLinearBaseline",
+    "DimChange",
 ]
