@@ -48,7 +48,6 @@ dependencies = [
 [tool.hatch.version]
 path = "phenonn/version.py"
 
-# FIX: Scripts entry points - must be strings in format "command = module:function"
 [project.scripts]
 phenonn = "phenonn.cli:main"
 

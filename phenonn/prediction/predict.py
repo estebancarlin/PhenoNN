@@ -1,29 +1,65 @@
-# Copyright 2026 IPSL / CNRS / Sorbonne University
-# Authors: Stefan Barbu, Kazem Ardaneh
-#
-# This work is licensed under the Creative Commons
-# Attribution-NonCommercial-ShareAlike 4.0 International License.
-# To view a copy of this license, visit
-# http://creativecommons.org/licenses/by-nc-sa/4.0/
+#!/usr/bin/env python3
+"""
+predict.py
+==========
 
-"""Run year-by-year inference from a ``phenonn train`` checkpoint.
+LAI inference for PhenoNN checkpoints. Port of LaiNN/phenocam/prediction_big.py
+adapted to the *pixelset* data pipeline: every input is a flat `site`-indexed
+NetCDF keyed by `site_id` (the old full-grid lat/lon layout is no longer
+accepted), exactly like `phenonn.training.train_full_ram`:
 
-Use ``phenonn predict --help`` for options and ``doc/source/prediction.rst``
-for executable examples.
+  - features : ERA5_daily_pixelset_{Y}.nc  (per-site daily series)
+  - targets  : LAI_dekadal_{Y}.nc          (pixelset LAI(dekad, site))
+  - PFT      : PFTmap_{Y}.nc               (pixelset pft_frac(pft, site))
+
+Loads `best_model.pth` (or any snapshot) produced by `phenonn.training.train_full_ram`, restores
+the model, builds an `LAIDataset` over the requested sites × years, runs
+inference, recovers physical LAI (handling normalization + anomaly mode),
+and writes a CSV compatible with the existing diagnostics scripts:
+
+    site_id, year, month, day, doy, lai_pred, lai_obs,
+    lai_pred_norm, lai_obs_norm, error
+
+Site selection
+--------------
+  --selected_pixels P   : sites listed in a selected_pixels*.nc (e.g.
+                          selected_pixels_PFT9.nc) — overrides the modes below
+  --predict_sites val   : ckpt['val_site_ids']
+  --predict_sites train : ckpt['train_site_ids']
+  --predict_sites all   : union of train_site_ids ∪ val_site_ids
+  --predict_sites grid  : every pixel id in the bbox `--row_min/max --col_min/max`
+                          (falls back to the bbox from training args if -1). Only
+                          the bbox sites present in the pixelset survive — the
+                          others are silently dropped by LAIDataset.
+  --predict_sites test  : grid \\ val_site_ids (held-out for overlap mode)
+
+Usage
+-----
+    python -m prediction.predict \\
+        --checkpoint runs_final/exp/checkpoints/best_model.pth \\
+        --features_dir /data/sbarbu/era5_features \\
+        --target_dir   /data/sbarbu/targets \\
+        --pft_dir      /data/sbarbu/pft \\
+        --predict_sites val \\
+        --output_csv runs_final/exp/predictions.csv
 """
 
-import os
 import argparse
-import glob
+import datetime
+import os
+
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from phenonn.data.dataset import (
-    PhenoCamDataset,
+from phenonn.utils.config import PFT_FNAME, PFT_NAMES
+from phenonn.data.lai_dataset import (
+    RamLAIDataset,
+    generate_site_ids_from_range,
+    load_selected_pixels,
 )
-from phenonn.utils.model_loader import load_model
+from phenonn.utils.model_factory import build_model, build_model_pft
 from phenonn.utils.diagnostics import (
     plot_pred_vs_obs,
     plot_gcc_curves,
@@ -32,331 +68,455 @@ from phenonn.utils.diagnostics import (
 from phenonn.utils.utils import EasyDict
 
 
+# 36 obs (month, day, doy) — non-leap year
+_OBS_DATES = [
+    (m, d, datetime.date(2001, m, d).timetuple().tm_yday)
+    for m in range(1, 13)
+    for d in [5, 15, 25]
+]
+
+
+# ── CLI ─────────────────────────────────────────────────────────────────────
+
+
 def parse_args():
-    p = argparse.ArgumentParser(description="PhenoCam year-by-year inference")
+    p = argparse.ArgumentParser(description="PhenoNN inference")
+    p.add_argument("--checkpoint", required=True)
+    p.add_argument("--features_dir", default="")
+    p.add_argument("--target_dir", default="")
+    p.add_argument("--pft_dir", default="")
     p.add_argument(
-        "--checkpoint", type=str, required=True, help="Path to best_model.pth"
+        "--predict_sites",
+        default="val",
+        choices=["val", "train", "all", "grid", "test"],
     )
     p.add_argument(
-        "--data_dir", type=str, required=True, help="Directory with site CSVs"
+        "--selected_pixels",
+        default="",
+        help="Path to a selected_pixels*.nc (e.g. "
+        "selected_pixels_PFT9.nc). When set, predict only on "
+        "its sites — overrides --sites and --predict_sites.",
+    )
+    p.add_argument(
+        "--sites",
+        default="",
+        help="Comma-separated explicit site IDs — overrides " "--predict_sites.",
+    )
+    p.add_argument(
+        "--n_predict_sites",
+        type=int,
+        default=0,
+        help="If > 0, random subsample of this many sites.",
     )
     p.add_argument(
         "--predict_years",
-        type=str,
-        default="all",
-        help="Comma-separated years (e.g. '2022,2023') or 'all'",
+        default="",
+        help="'2015-2018', '2015,2016' or 'all'. "
+        "Empty → val_years from the checkpoint.",
+    )
+    p.add_argument("--row_min", type=int, default=-1)
+    p.add_argument("--row_max", type=int, default=-1)
+    p.add_argument("--col_min", type=int, default=-1)
+    p.add_argument("--col_max", type=int, default=-1)
+    p.add_argument("--output_csv", default="predictions.csv")
+    p.add_argument("--batch_size", type=int, default=64)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--scatter_years",
+        action="store_true",
+        help="One pred-vs-obs scatter per evaluated year, in a "
+        "`scatter_year/` sub-folder next to --output_csv.",
     )
     p.add_argument(
-        "--predict_sites",
-        type=str,
-        default="val",
-        choices=["val", "train", "all"],
-        help="Which sites to predict on: 'val' (validation sites from "
-        "site-split), 'train', or 'all'. Default 'val'.",
+        "--n_curves",
+        type=int,
+        default=0,
+        help="Number of per-site curves to plot in *_lai_curves_all.png. "
+        "0 = plot every site that produced predictions (default). "
+        "Otherwise a random subset of this size is drawn.",
     )
     p.add_argument(
-        "--output_csv",
-        type=str,
-        default="predictions.csv",
-        help="Where to save predictions",
+        "--pft_min_frac",
+        type=float,
+        default=0.05,
+        help="Show PFTs with fraction ≥ this threshold above each curve "
+        "subplot (default: 0.05 = 5%%).",
     )
-    p.add_argument("--batch_size", type=int, default=128)
     return p.parse_args()
 
 
-def run_prediction():
-    args = parse_args()
+def parse_year_spec(spec: str):
+    if not spec or spec.lower() == "all":
+        return None
+    if "-" in spec and "," not in spec:
+        a, b = spec.split("-")
+        return list(range(int(a), int(b) + 1))
+    return [int(y) for y in spec.split(",")]
 
-    # ── Load checkpoint ──
+
+def _load_pft_fracs(pft_dir: str, year: int, site_ids) -> dict:
+    """Return {site_id: (N_PFT,) fraction vector} from PFTmap_{year}.nc, aligned
+    by site_id. Empty dict if the file is missing (PFT annotation then skipped)."""
+    import xarray as xr
+
+    path = os.path.join(pft_dir, PFT_FNAME.format(year=year))
+    if not os.path.exists(path):
+        return {}
+    ds = xr.open_dataset(path, engine="netcdf4", decode_times=False)
+    da = ds["pft_frac"] if "pft_frac" in ds.data_vars else ds[list(ds.data_vars)[0]]
+    all_sites = np.asarray(ds["site_id"].values).astype(str)
+    arr = da.transpose("pft", "site").values.astype(np.float32)  # (N_PFT, n_all)
+    ds.close()
+    idx_of = {s: i for i, s in enumerate(all_sites)}
+    out = {}
+    for s in map(str, site_ids):
+        j = idx_of.get(s, -1)
+        if j >= 0:
+            out[s] = arr[:, j]
+    return out
+
+
+def _resolve_sites(args, ckpt, train_args) -> list:
+    if args.selected_pixels:
+        return load_selected_pixels(args.selected_pixels)
+    if args.sites:
+        return [s.strip() for s in args.sites.split(",") if s.strip()]
+    mode = args.predict_sites
+    train_pool = list(ckpt.get("train_site_ids", []))
+    val_pool = list(ckpt.get("val_site_ids", []))
+    if mode == "val":
+        return val_pool
+    if mode == "train":
+        return train_pool
+    if mode == "all":
+        return sorted(set(train_pool) | set(val_pool))
+    # grid / test need a row/col range
+    rmin = args.row_min if args.row_min >= 0 else int(train_args.get("row_min", 0))
+    rmax = args.row_max if args.row_max >= 0 else int(train_args.get("row_max", 0))
+    cmin = args.col_min if args.col_min >= 0 else int(train_args.get("col_min", 0))
+    cmax = args.col_max if args.col_max >= 0 else int(train_args.get("col_max", 0))
+    grid = generate_site_ids_from_range((rmin, rmax), (cmin, cmax))
+    if mode == "grid":
+        return grid
+    if mode == "test":
+        if not val_pool:
+            raise RuntimeError("'test' mode needs val_site_ids in the checkpoint.")
+        return sorted(set(grid) - set(val_pool))
+    raise ValueError(mode)
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
+
+def main():
+    args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     train_args = EasyDict(ckpt["args"])
-    norm_stats = ckpt["norm_stats"]
-    pft_list = ckpt["pft_list"]
-    split_mode = train_args.get("split_mode", "year")
+    norm_stats = ckpt.get("norm_stats", None)
+    co2_lut = ckpt.get("co2_lut", None)
+    anomaly_clim = ckpt.get("anomaly_clim", None) if ckpt.get("anomaly_mode") else None
+    is_anomaly = bool(ckpt.get("anomaly_mode", False))
+    is_normalized = norm_stats is not None
+    lai_normalized = bool(ckpt.get("normalize_lai", True))
+    is_pft_mixing = bool(ckpt.get("pft_mixing", False))
 
-    # Recover file lists from checkpoint (saved by main.py for site splits)
-    saved_train_files = ckpt.get("train_files", None)
-    saved_val_files = ckpt.get("val_files", None)
+    print(f"Checkpoint    : {args.checkpoint}")
+    print(f"Epoch         : {ckpt['epoch']}")
+    print(
+        f"Val RMSE / R² : {ckpt.get('val_rmse', float('nan')):.5f} / "
+        f"{ckpt.get('val_r2', float('nan')):.4f}"
+    )
+    print(
+        f"Flags         : norm={is_normalized}, lai_norm={lai_normalized}, "
+        f"pft_mixing={is_pft_mixing}, anomaly={is_anomaly}, "
+        f"co2={co2_lut is not None}"
+    )
 
-    lai_norms = ckpt.get("lai_norms", None)
-    if lai_norms:
-        print(f"Per-site LAI normalization: {len(lai_norms)} sites")
-    else:
-        print("No per-site LAI normalization")
+    features_dir = args.features_dir or train_args.get("features_dir", "")
+    target_dir = args.target_dir or train_args.get("target_dir", "")
+    pft_dir = args.pft_dir or train_args.get("pft_dir", "")
+    if not features_dir or not target_dir or not pft_dir:
+        raise ValueError(
+            "Provide --features_dir, --target_dir, --pft_dir "
+            "or use a checkpoint that stored them."
+        )
 
     # ── Rebuild model ──
-    # At inference we always want single-day output, so force n_target_days=1
-    train_args.n_target_days = 1
-    model = load_model(train_args).to(device)
-
-    # Load weights — handle mismatch if trained with LastNDaysWrapper
-    state_dict = ckpt["model_state_dict"]
-    # Both SingleDayWrapper and LastNDaysWrapper store weights under base_model.*
-    # so state_dict is compatible
-    model.load_state_dict(state_dict)
+    if is_pft_mixing:
+        model = build_model_pft(train_args, norm_stats).to(device)
+        wrapper_label = "PFTMixingWrapper"
+    else:
+        model = build_model(train_args).to(device)
+        wrapper_label = "Every10DaysWrapper"
+    model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
+    print(f"Model         : {train_args.get('type')} + {wrapper_label}")
 
-    print(
-        f"Model loaded from {args.checkpoint}  (epoch {ckpt['epoch']}, "
-        f"val_R²={ckpt.get('val_r2', '?'):.4f})"
+    # ── Resolve sites and years ──
+    site_ids = _resolve_sites(args, ckpt, train_args)
+    if not site_ids:
+        raise RuntimeError("Empty site list.")
+    if 0 < args.n_predict_sites < len(site_ids):
+        rng = np.random.RandomState(args.seed)
+        site_ids = rng.choice(
+            site_ids, size=args.n_predict_sites, replace=False
+        ).tolist()
+    print(f"Sites         : {len(site_ids):,}")
+
+    years = parse_year_spec(args.predict_years)
+    if years is None:
+        val_years_str = str(train_args.get("val_years", "") or "")
+        years = parse_year_spec(val_years_str)
+        if not years:
+            raise ValueError("Could not infer predict_years.")
+    print(f"Years         : {years}")
+
+    # ── Dataset ── (RAM-resident: vectorised read, avoids the per-site disk
+    #    thrashing of the on-disk LAIDataset; bit-identical features.)
+    print("Building dataset …")
+    dataset = RamLAIDataset(
+        features_dir=features_dir,
+        target_dir=target_dir,
+        pft_dir=pft_dir,
+        years=years,
+        site_ids=site_ids,
+        seq_length=int(train_args.get("seq_length", 720)),
+        norm_stats=norm_stats,
+        anomaly_clim=anomaly_clim,
+        co2_lut=co2_lut,
+        normalize_lai=lai_normalized,
+        verbose=True,
     )
-    print(f"Training split_mode: {split_mode}")
-
-    # ── Resolve which site files to use ──
-    all_site_files = sorted(glob.glob(os.path.join(args.data_dir, "*.csv")))
-    if not all_site_files:
-        raise FileNotFoundError(f"No CSV files in {args.data_dir}")
-
-    if args.predict_sites == "all":
-        site_files = all_site_files
-        print(f"Predicting on ALL {len(site_files)} sites")
-
-    elif args.predict_sites == "val":
-        if saved_val_files is not None:
-            # Remap to current data_dir (paths may differ between train/predict)
-            available = set(os.path.basename(f) for f in all_site_files)
-            site_files = [
-                os.path.join(args.data_dir, os.path.basename(f))
-                for f in saved_val_files
-                if os.path.basename(f) in available
-            ]
-            print(f"Predicting on {len(site_files)} VALIDATION sites (from checkpoint)")
-        elif split_mode == "year":
-            site_files = all_site_files
-            print(
-                f"Year-split model: all {len(site_files)} sites used (no site holdout)"
-            )
-        else:
-            print("WARNING: checkpoint has no saved val_files. Using all sites.")
-            site_files = all_site_files
-
-    elif args.predict_sites == "train":
-        if saved_train_files is not None:
-            available = set(os.path.basename(f) for f in all_site_files)
-            site_files = [
-                os.path.join(args.data_dir, os.path.basename(f))
-                for f in saved_train_files
-                if os.path.basename(f) in available
-            ]
-            print(f"Predicting on {len(site_files)} TRAINING sites (from checkpoint)")
-        elif split_mode == "year":
-            site_files = all_site_files
-            print(
-                f"Year-split model: all {len(site_files)} sites used (no site holdout)"
-            )
-        else:
-            print("WARNING: checkpoint has no saved train_files. Using all sites.")
-            site_files = all_site_files
-
-    if not site_files:
-        raise RuntimeError(
-            "No site files matched. Check --data_dir and --predict_sites."
-        )
-
-    # ── Resolve which years to predict ──
-    predict_years = None  # None = all available years
-    if args.predict_years.lower() != "all":
-        predict_years = [int(y) for y in args.predict_years.split(",")]
-
-    # ── Build dataset ──
-    feature_mode = train_args.get("feature_mode", "all")
-    full_year = train_args.get("full_year", False)
-    if feature_mode != "all":
-        print(f"Feature mode: {feature_mode}")
-    if full_year:
-        print("Full-year prediction mode (365 days per sample)")
-    dataset = PhenoCamDataset(
-        site_files,
-        norm_stats,
-        seq_length=train_args.seq_length,
-        pft_list=pft_list,
-        years=predict_years,
-        stride=1,
-        lai_norms=lai_norms,
-        feature_mode=feature_mode,
-        full_year=full_year,
-    )
-    year_str = predict_years if predict_years else "all"
-    print(
-        f"Prediction samples: {len(dataset)} "
-        f"({len(site_files)} sites × years {year_str})"
-    )
-
     if len(dataset) == 0:
-        raise RuntimeError(
-            "No prediction samples. Check year availability and seq_length."
-        )
-
+        raise RuntimeError("No prediction samples produced.")
     loader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=True,
+        dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
     )
 
-    # ── Predict ──
-    all_preds = []
-    all_targets = []
-    all_meta = []
-    all_preds_norm = []
-    all_targets_norm = []
+    # ── Inference ──
+    denorm_lai = is_normalized and lai_normalized and not is_anomaly
+    if denorm_lai:
+        lai_mean = float(norm_stats["LAI"]["mean"])
+        lai_std = float(norm_stats["LAI"]["std"])
 
+    rows = []
+    print("Running inference …")
     with torch.no_grad():
         for i_batch, (features, targets) in enumerate(loader):
             preds = model(features.to(device)).cpu()
             batch_start = i_batch * args.batch_size
-
             for j in range(preds.size(0)):
                 idx = batch_start + j
                 meta = dataset.get_site_info(idx)
-                lai_min = meta.get("lai_min")
-                lai_max = meta.get("lai_max")
-                site_idx, day_idx = dataset.samples[idx]
+                pred_v = preds[j, 0, :].numpy()
+                tgt_v = targets[j, 0, :].numpy()
 
-                if full_year:
-                    # preds: (B, 1, 365), targets: (B, 1, 365)
-                    pred_seq = preds[j, 0, :].numpy()  # (365,)
-                    tgt_seq = targets[j, 0, :].numpy()  # (365,)
-                    pred_length = len(pred_seq)
-
-                    for k in range(pred_length):
-                        d = day_idx - pred_length + 1 + k
-                        site_data = dataset.site_data[site_idx]
-                        yr = int(site_data["years"][d])
-
-                        row_meta = {
-                            "site": meta["site"],
-                            "pft": meta["pft"],
-                            "year": yr,
-                            "day_index": d,
-                            "lai_min": lai_min,
-                            "lai_max": lai_max,
-                        }
-                        all_meta.append(row_meta)
-                        all_preds_norm.append(float(pred_seq[k]))
-                        all_targets_norm.append(float(tgt_seq[k]))
-
-                        if lai_min is not None and lai_max is not None:
-                            denom = lai_max - lai_min
-                            all_preds.append(float(pred_seq[k]) * denom + lai_min)
-                            all_targets.append(float(tgt_seq[k]) * denom + lai_min)
-                        else:
-                            all_preds.append(float(pred_seq[k]))
-                            all_targets.append(float(tgt_seq[k]))
+                if is_anomaly:
+                    clim_vec = anomaly_clim.get(meta["site_id"])
+                    if clim_vec is None:
+                        continue
+                    pred_real = pred_v + clim_vec
+                    tgt_real = tgt_v + clim_vec
+                    pred_norm = pred_v
+                    tgt_norm = tgt_v
+                elif denorm_lai:
+                    pred_real = pred_v * lai_std + lai_mean
+                    tgt_real = tgt_v * lai_std + lai_mean
+                    pred_norm = pred_v
+                    tgt_norm = tgt_v
                 else:
-                    # Standard: preds (B, 1), targets (B, 1)
-                    pred_norm = preds[j, 0].item()
-                    tgt_norm = targets[j, 0].item()
+                    pred_real = pred_v
+                    tgt_real = tgt_v
+                    pred_norm = pred_v
+                    tgt_norm = tgt_v
 
-                    all_meta.append(meta)
-                    all_preds_norm.append(pred_norm)
-                    all_targets_norm.append(tgt_norm)
+                for k, (month, day, doy) in enumerate(_OBS_DATES):
+                    rows.append(
+                        {
+                            "site_id": meta["site_id"],
+                            "year": meta["year"],
+                            "month": month,
+                            "day": day,
+                            "doy": doy,
+                            "lai_pred": float(pred_real[k]),
+                            "lai_obs": float(tgt_real[k]),
+                            "lai_pred_norm": float(pred_norm[k]),
+                            "lai_obs_norm": float(tgt_norm[k]),
+                        }
+                    )
 
-                    if lai_min is not None and lai_max is not None:
-                        denom = lai_max - lai_min
-                        all_preds.append(pred_norm * denom + lai_min)
-                        all_targets.append(tgt_norm * denom + lai_min)
-                    else:
-                        all_preds.append(pred_norm)
-                        all_targets.append(tgt_norm)
-
-    # ── Assemble results ──
-    df = pd.DataFrame(all_meta)
-    df["lai_pred"] = all_preds
-    df["lai_obs"] = all_targets
+    df = pd.DataFrame(rows)
     df["error"] = df["lai_pred"] - df["lai_obs"]
-    df["lai_pred_norm"] = all_preds_norm
-    df["lai_obs_norm"] = all_targets_norm
 
-    # Per-site, per-year stats
-    print("\n── Per-site, per-year metrics ──")
-    for (site, year), g in df.groupby(["site", "year"]):
-        rmse = np.sqrt(np.mean(g["error"] ** 2))
-        ss_res = np.sum(g["error"] ** 2)
-        ss_tot = np.sum((g["lai_obs"] - g["lai_obs"].mean()) ** 2)
-        r2 = 1 - ss_res / ss_tot if ss_tot > 0 else 0
-        print(f"  {site:25s}  {year}  RMSE={rmse:.5f}  R²={r2:.4f}  n={len(g)}")
+    valid = df.dropna(subset=["lai_obs"]).copy()
+    print(f"\nObservations  : {len(valid):,} valid / {len(df):,} total")
+    summary_lines: list = []
+    if not valid.empty:
+        obs = valid["lai_obs"].values.astype(float)
+        pred = valid["lai_pred"].values.astype(float)
+        err = pred - obs
+        overall_rmse = float(np.sqrt(np.mean(err**2)))
 
-    site_r2s = []
-    for site, g in df.groupby("site"):
-        ss_res = np.sum((g.lai_obs - g.lai_pred) ** 2)
-        ss_tot = np.sum((g.lai_obs - g.lai_obs.mean()) ** 2)
-        if ss_tot > 0:
-            site_r2s.append(1 - ss_res / ss_tot)
-    print(f"Median per-site R²: {np.median(site_r2s):.3f}")
+        # Global R² (NSE): SS_tot uses the single global obs mean.
+        ss_res = float(np.sum(err**2))
+        ss_tot = float(np.sum((obs - obs.mean()) ** 2))
+        r2_global = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
 
-    # Overall RMSE
-    errors = np.asarray(all_preds) - np.asarray(all_targets)
-    rmse_all = float(np.sqrt(np.mean(errors**2)))
-    print(f"\nOverall RMSE: {rmse_all:.5f}")
+        # Centered R² (NSE on dynamics): remove each site's own mean from obs
+        # AND pred, so only intra-site temporal variation is scored.
+        oc = valid["lai_obs"] - valid.groupby("site_id")["lai_obs"].transform("mean")
+        pc = valid["lai_pred"] - valid.groupby("site_id")["lai_pred"].transform("mean")
+        ss_res_c = float(np.sum((oc - pc) ** 2))
+        ss_tot_c = float(np.sum(oc**2))
+        r2_centered = 1.0 - ss_res_c / ss_tot_c if ss_tot_c > 0 else float("nan")
 
-    # Save CSV
+        # Pearson² (squared linear correlation; ignores bias/scale).
+        if obs.std() > 1e-9 and pred.std() > 1e-9:
+            r = float(np.corrcoef(obs, pred)[0, 1])
+            r2_pearson = r * r
+        else:
+            r2_pearson = float("nan")
+
+        # Per-site R² (NSE), sites with enough valid points and obs variance.
+        site_r2s = []
+        for _, g in valid.groupby("site_id"):
+            o = g["lai_obs"].values
+            p = g["lai_pred"].values
+            sstot = float(np.sum((o - o.mean()) ** 2))
+            if len(o) < 5 or sstot <= 0:
+                continue
+            site_r2s.append(1.0 - float(np.sum((p - o) ** 2)) / sstot)
+
+        # ── Build summary (printed and saved to <output>_metrics.txt) ──
+        summary_lines.append("── Pooled metrics ──")
+        summary_lines.append(
+            f"  Global    R²  (NSE)         : {r2_global:+.4f}  "
+            f"(includes inter-site mean differences — generous)"
+        )
+        summary_lines.append(
+            f"  Centered  R²  (NSE on dyn.) : {r2_centered:+.4f}  "
+            f"(intra-site variance only — fair test of dynamics)"
+        )
+        summary_lines.append(
+            f"  Pearson²  R²  (correlation) : {r2_pearson:+.4f}  "
+            f"(linear alignment only — ignores bias / scale; matches papers)"
+        )
+        summary_lines.append(f"  Overall RMSE                : {overall_rmse:.4f}")
+
+        if site_r2s:
+            arr = np.array(site_r2s)
+            n_pos = int(np.sum(arr > 0))
+            summary_lines.append("")
+            summary_lines.append(
+                f"── Per-site R² (NSE) distribution ({len(arr)} sites) ──"
+            )
+            summary_lines.append(f"  Median         : {np.median(arr):+.4f}")
+            summary_lines.append(f"  Mean           : {np.mean(arr):+.4f}")
+            summary_lines.append(f"  5th  percentile: {np.percentile(arr, 5):+.4f}")
+            summary_lines.append(f"  95th percentile: {np.percentile(arr, 95):+.4f}")
+            summary_lines.append(
+                f"  Sites with R²>0: {n_pos:,} / {len(arr):,} "
+                f"({100.0 * n_pos / len(arr):.1f}%)"
+            )
+
+        print("\n" + "\n".join(summary_lines))
+
+    # ── Save CSV ──
     os.makedirs(os.path.dirname(args.output_csv) or ".", exist_ok=True)
     df.to_csv(args.output_csv, index=False)
-    print(f"Predictions saved to {args.output_csv}")
+    print(f"\nPredictions → {args.output_csv}")
 
-    # Pred-vs-obs scatter
-    plot_filename = os.path.splitext(args.output_csv)[0] + "_pred_vs_obs.png"
-    plot_pred_vs_obs(
-        df["lai_pred"].values,
-        df["lai_obs"].values,
-        filename=plot_filename,
-        title=f"Predicted vs observed — {len(df):,} points",
-    )
-
-    # LAI annual curves for low / medium / high R² sites
-    if df["site"].nunique() >= 3:
-        curves_filename = os.path.splitext(args.output_csv)[0] + "_gcc_curves.png"
-        selected = plot_gcc_curves(
-            df,
-            filename=curves_filename,
-            site_col="site",
-            year_col="year",
-            doy_col="day_index",
-        )
-        print(f"Selected sites for curve plot: {selected}")
-
-    # LAI curves for ALL sites (grid sorted by R²)
-    if df["site"].nunique() >= 1:
-        all_curves_filename = (
-            os.path.splitext(args.output_csv)[0] + "_gcc_curves_all.png"
-        )
-        plot_gcc_curves_all(
-            df,
-            filename=all_curves_filename,
-            site_col="site",
-            year_col="year",
-            doy_col="day_index",
-        )
-
-    # Normalized pred-vs-obs scatter
-    if lai_norms:
-        plot_filename = os.path.splitext(args.output_csv)[0] + "_pred_vs_obs_norm.png"
+    base = os.path.splitext(args.output_csv)[0]
+    if summary_lines:
+        metrics_path = base + "_metrics.txt"
+        with open(metrics_path, "w") as f:
+            f.write("\n".join(summary_lines) + "\n")
+        print(f"Metrics → {metrics_path}")
+    if not valid.empty:
         plot_pred_vs_obs(
-            df["lai_pred_norm"].values,
-            df["lai_obs_norm"].values,
-            filename=plot_filename,
-            title=f"Predicted vs observed (normalized) — {len(df):,} points",
+            valid["lai_pred"].values,
+            valid["lai_obs"].values,
+            filename=base + "_pred_vs_obs.png",
+            title=f"PhenoNN — Predicted vs observed LAI " f"({len(valid):,} pts)",
+        )
+        if is_anomaly:
+            plot_pred_vs_obs(
+                valid["lai_pred_norm"].values,
+                valid["lai_obs_norm"].values,
+                filename=base + "_pred_vs_obs_anomaly.png",
+                title=f"ΔLAI anomaly ({len(valid):,} pts)",
+                xlabel="Observed ΔLAI",
+                ylabel="Predicted ΔLAI",
+            )
+        elif denorm_lai:
+            plot_pred_vs_obs(
+                valid["lai_pred_norm"].values,
+                valid["lai_obs_norm"].values,
+                filename=base + "_pred_vs_obs_norm.png",
+                title=f"Normalized LAI ({len(valid):,} pts)",
+                xlabel="Observed LAI (normalized)",
+                ylabel="Predicted LAI (normalized)",
+            )
+        if valid["site_id"].nunique() >= 3:
+            plot_gcc_curves(
+                valid,
+                filename=base + "_lai_curves.png",
+                site_col="site_id",
+                year_col="year",
+                doy_col="doy",
+            )
+
+        # ── Grid of per-site curves: all sites (--n_curves 0) or a random
+        #    subset of --n_curves sites. Each subplot title lists its PFTs with
+        #    fraction ≥ --pft_min_frac (read from PFTmap of the first year). ──
+        sites_all = valid["site_id"].unique()
+        if args.n_curves and 0 < args.n_curves < len(sites_all):
+            rng_c = np.random.RandomState(args.seed)
+            keep = set(rng_c.choice(sites_all, size=args.n_curves, replace=False))
+            curve_df = valid[valid["site_id"].isin(keep)]
+        else:
+            curve_df = valid
+        n_curve_sites = curve_df["site_id"].nunique()
+        if n_curve_sites > 400:
+            print(
+                f"[warn] plotting {n_curve_sites:,} site curves in one grid — "
+                f"use --n_curves to subsample."
+            )
+        pft_by_site = _load_pft_fracs(pft_dir, years[0], curve_df["site_id"].unique())
+        plot_gcc_curves_all(
+            curve_df,
+            filename=base + "_lai_curves_all.png",
+            site_col="site_id",
+            year_col="year",
+            doy_col="doy",
+            pft_by_site=pft_by_site,
+            pft_names=PFT_NAMES,
+            pft_min_frac=args.pft_min_frac,
         )
 
-    # LAI curves for ALL sites, normalized (if norms available)
-    if df["site"].nunique() >= 1:
-        if lai_norms:
-            all_curves_norm_filename = (
-                os.path.splitext(args.output_csv)[0] + "_gcc_curves_all_norm.png"
+    if args.scatter_years and not valid.empty:
+        year_dir = os.path.join(os.path.dirname(base) or ".", "scatter_year")
+        os.makedirs(year_dir, exist_ok=True)
+        for yr in sorted(int(y) for y in valid["year"].unique()):
+            sub = valid[valid["year"] == yr]
+            if len(sub) < 2:
+                continue
+            ss_res = float(np.sum((sub["lai_obs"] - sub["lai_pred"]) ** 2))
+            ss_tot = float(np.sum((sub["lai_obs"] - sub["lai_obs"].mean()) ** 2))
+            r2_y = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+            rmse_y = float(np.sqrt(np.mean((sub["lai_pred"] - sub["lai_obs"]) ** 2)))
+            plot_pred_vs_obs(
+                sub["lai_pred"].values,
+                sub["lai_obs"].values,
+                filename=os.path.join(year_dir, f"year_{yr}_pred_vs_obs.png"),
+                title=f"Year {yr} — R²={r2_y:+.4f} RMSE={rmse_y:.4f} "
+                f"n={len(sub):,}",
             )
-            plot_gcc_curves_all(
-                df,
-                filename=all_curves_norm_filename,
-                site_col="site",
-                year_col="year",
-                doy_col="day_index",
-                pred_col="lai_pred_norm",
-                obs_col="lai_obs_norm",
-            )
+
+    print("Done.")
 
 
 if __name__ == "__main__":
-    run_prediction()
+    main()

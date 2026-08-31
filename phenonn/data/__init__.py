@@ -108,3 +108,8 @@ __all__ = [
     "GLOBAL_METEO_FEATURES",
     "GLOBAL_PFT_FEATURES",
 ]
+# The 0.1-degree pipeline lives in lai_dataset; retain the established CSV and
+# global NetCDF exports above for existing experiments and checkpoints.
+from .lai_dataset import RamLAIDataset
+
+__all__.append("RamLAIDataset")

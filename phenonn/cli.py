@@ -30,11 +30,15 @@ def main():
         print("  train-big     Train big model with year-based split")
         print("  train-flat    Train model on flat CSVs")
         print("  train-global  Train model on selected-site NetCDF files")
-        print("  predict       Run predictions on per-site CSVs")
+        print("  predict       Run 0.1-degree pixelset inference")
         print("  predict-flat  Run predictions on flat CSVs")
         print("  evaluate-global  Evaluate a global NetCDF checkpoint")
         print("  evaluate-phenocam  Compare LAI predictions with Phenocam GCC")
         print("  compare-global  Compare global training runs and evaluations")
+        print("  train-0p1     Train the 0.1-degree pixelset workflow")
+        print("  predict-0p1   Predict from a 0.1-degree pixelset checkpoint")
+        print("  train-xgb     Train the XGBoost baseline")
+        print("  predict-xgb   Run the XGBoost baseline")
         print("\nRun 'phenonn <command> --help' for command-specific options")
         return
 
@@ -88,7 +92,7 @@ def main():
             sys.argv = original_argv
 
     elif command == "predict":
-        from phenonn.prediction.predict import run_prediction
+        from phenonn.prediction.predict import main as run_prediction
 
         original_argv = sys.argv
         sys.argv = subcommand_argv
@@ -137,6 +141,46 @@ def main():
         finally:
             sys.argv = original_argv
 
+    elif command == "train-0p1":
+        from phenonn.training.train_full_ram import main as train_full_ram
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            train_full_ram()
+        finally:
+            sys.argv = original_argv
+
+    elif command == "predict-0p1":
+        from phenonn.prediction.predict import main as predict_pixelset
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            predict_pixelset()
+        finally:
+            sys.argv = original_argv
+
+    elif command == "train-xgb":
+        from phenonn.training.xgb_train import main as train_xgb
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            train_xgb()
+        finally:
+            sys.argv = original_argv
+
+    elif command == "predict-xgb":
+        from phenonn.prediction.xgb_predict import main as predict_xgb
+
+        original_argv = sys.argv
+        sys.argv = subcommand_argv
+        try:
+            predict_xgb()
+        finally:
+            sys.argv = original_argv
+
     elif command in ["--help", "-h"]:
         print(f"PhenoNN version {__version__}")
         print("Usage: phenonn <command> [options]")
@@ -145,11 +189,15 @@ def main():
         print("  train-flat    Train model on flat CSVs")
         print("  train-big     Train big model with year-based split")
         print("  train-global  Train model on selected-site NetCDF files")
-        print("  predict       Run predictions on per-site CSVs")
+        print("  predict       Run 0.1-degree pixelset inference")
         print("  predict-flat  Run predictions on flat CSVs")
         print("  evaluate-global  Evaluate a global NetCDF checkpoint")
         print("  evaluate-phenocam  Compare LAI predictions with Phenocam GCC")
         print("  compare-global  Compare global training runs and evaluations")
+        print("  train-0p1     Train the 0.1-degree pixelset workflow")
+        print("  predict-0p1   Predict from a 0.1-degree pixelset checkpoint")
+        print("  train-xgb     Train the XGBoost baseline")
+        print("  predict-xgb   Run the XGBoost baseline")
         print("\nRun 'phenonn <command> --help' for command-specific options")
 
     else:

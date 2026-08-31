@@ -391,10 +391,12 @@ class TestDiagnostics(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertEqual(len(result), 3)  # Returns 3 sites
 
-        # Check that R² values are between 0 and 1
-        for site, r2 in result.items():
+        # Each selected site returns (R², MAE, MSE).
+        for site, (r2, mae, mse) in result.items():
             self.assertGreaterEqual(r2, 0)
             self.assertLessEqual(r2, 1)
+            self.assertGreaterEqual(mae, 0)
+            self.assertGreaterEqual(mse, 0)
 
     def test_plot_gcc_curves_custom_columns(self):
         """Test GCC curves plot with custom column names."""
@@ -443,13 +445,15 @@ class TestDiagnostics(unittest.TestCase):
         # Should return all 6 sites
         self.assertEqual(len(result), 6)
 
-        # Check R² values are between 0 and 1
-        for site, r2 in result.items():
+        # Each site returns (R², MAE, MSE).
+        for site, (r2, mae, mse) in result.items():
             self.assertGreaterEqual(r2, 0)
             self.assertLessEqual(r2, 1)
+            self.assertGreaterEqual(mae, 0)
+            self.assertGreaterEqual(mse, 0)
 
         # Check that sites are sorted by R² descending (best first)
-        r2_values = list(result.values())
+        r2_values = [metrics[0] for metrics in result.values()]
         self.assertGreaterEqual(r2_values[0], r2_values[-1])
 
     def test_plot_feature_distributions(self):

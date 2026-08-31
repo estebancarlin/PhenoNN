@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""
+select_pixels.py
+================
+
+Sample a fixed subset of pixels from the union of yearly valid masks.
+
+Pipeline position
+-----------------
+    compute_valid_pixels.py   →   valid_pixels_{YYYY}.nc      (per-year masks)
+                                          ↓
+                                  select_pixels.py            (THIS SCRIPT)
+                                          ↓
+                                  selected_pixels.nc          (1 file, list of pixels)
+                                          ↓
+                            build_daily_dataset_pixelset.py     ;       build_pixelset_target.py
+
+                                          ↓                                     ↓
+                    ERA5_daily_pixelset_{Y}.nc  (per-year, flat)     PFTmap_{Y}.nc, LAI_{Y}.nc  (per-year, flat)
+
+Algorithm
+---------
+1. Open every `valid_pixels_{YYYY}.nc` found in `--valid_dir`.
+2. Compute the **union** of their `valid` masks (a pixel is kept if it is
+   valid at least one year).
+3. Randomly sample `--fraction` (default 0.1) of these union pixels with a
+   seeded RNG for reproducibility.
+4. Write a single `selected_pixels.nc` containing the (lat_idx, lon_idx,
+   latitude, longitude, site_id) of the selected pixels, in a single `site`
+   dimension.
+
+Output schema
+-------------
+    dims:   site=N_selected
+    vars:   lat_idx (int32), lon_idx (int32),
+            latitude (float32), longitude (float32),
+            site_id (str, "pix_LLLL_OOOOO")
+    attrs:  fraction, seed, n_union, n_selected
+
+Usage
+-----
+    python -m phenonn.data_creation.select_pixels \\
+        --valid_dir   /data/sbarbu/valid_pixels \\
+        --output_path /data/sbarbu/selected_pixels.nc \\
+        --fraction    0.1 \\
+        --seed        42
+"""
+
+import argparse
+import glob
+import os
+from pathlib import Path
+from typing import List
+
+import numpy as np
+import xarray as xr
+
+
+def encode_site_id(lat_idx: int, lon_idx: int) -> str:
+    """`pix_LLLL_OOOOO` — 4-digit lat index, 5-digit lon index.
+
+    Inlined here (instead of importing from phenonn.data.lai_dataset) so this
+    preprocessing step does not pull in torch.
+    """
+    return f"pix_{int(lat_idx):04d}_{int(lon_idx):05d}"
+
+
+def parse_args():
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument(
+        "--valid_dir",
+        required=True,
+        help="Folder of valid_pixels_{Y}.nc produced by " "compute_valid_pixels.py",
+    )
+    p.add_argument(
+        "--output_path",
+        required=True,
+        help="Output file (e.g. /data/sbarbu/selected_pixels.nc)",
+    )
+    p.add_argument(
+        "--fraction",
+        type=float,
+        default=0.1,
+        help="Fraction of qualifying pixels to keep (default 0.1).",
+    )
+    p.add_argument(
+        "--min_years",
+        type=int,
+        default=1,
+        help="Keep only pixels valid in at least N years (default 1 "
+        "= union). Pass N = number-of-files for intersection.",
+    )
+    p.add_argument("--seed", type=int, default=42, help="RNG seed for reproducibility.")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    valid_dir = Path(args.valid_dir).resolve()
+    files: List[str] = sorted(glob.glob(str(valid_dir / "valid_pixels_*.nc")))
+    if not files:
+        raise FileNotFoundError(f"No valid_pixels_*.nc files in {valid_dir!r}")
+    print(f"Found {len(files)} valid_pixels file(s) in {valid_dir}.")
+
+    # ── Open the first file to get reference grid + start the counter ──
+    ref = xr.open_dataset(files[0])
+    n_lat = ref.sizes["latitude"]
+    n_lon = ref.sizes["longitude"]
+    ref_lat = ref["latitude"].values.astype(np.float32)
+    ref_lon = ref["longitude"].values.astype(np.float32)
+
+    # int16 counter: how many years each pixel was valid.
+    counter = ref["valid"].astype(bool).values.astype(np.int16)
+    ref.close()
+
+    for f in files[1:]:
+        ds = xr.open_dataset(f)
+        if ds.sizes["latitude"] != n_lat or ds.sizes["longitude"] != n_lon:
+            raise ValueError(
+                f"{os.path.basename(f)} has different grid shape — "
+                f"valid masks must share the same (lat, lon) reference."
+            )
+        counter += ds["valid"].astype(bool).values.astype(np.int16)
+        ds.close()
+
+    min_years = max(1, int(args.min_years))
+    if min_years > len(files):
+        raise ValueError(
+            f"--min_years {min_years} > number of valid_pixels files "
+            f"({len(files)})."
+        )
+
+    qualifying = counter >= min_years
+    n_total = int(qualifying.size)
+    n_qualifying = int(qualifying.sum())
+    n_sample = int(round(n_qualifying * args.fraction))
+    print(f"Counter range : 0 … {int(counter.max())} years per pixel")
+    print(f"min_years     : {min_years}/{len(files)} (years a pixel must be valid)")
+    print(
+        f"Qualifying    : {n_qualifying:,} pixels / {n_total:,} "
+        f"({100 * n_qualifying / n_total:.2f} %)"
+    )
+    print(
+        f"Target        : {n_sample:,} pixels "
+        f"({args.fraction * 100:.1f} % of qualifying)"
+    )
+
+    # ── Sample without replacement ──
+    lat_idx_all, lon_idx_all = np.where(qualifying)
+    n_qualifying = int(lat_idx_all.size)
+    rng = np.random.default_rng(args.seed)
+    sel = np.sort(rng.choice(n_qualifying, size=n_sample, replace=False))
+    lat_idx_sel = lat_idx_all[sel].astype(np.int32)
+    lon_idx_sel = lon_idx_all[sel].astype(np.int32)
+    lat_sel = ref_lat[lat_idx_sel]
+    lon_sel = ref_lon[lon_idx_sel]
+    site_ids = np.array(
+        [encode_site_id(int(la), int(lo)) for la, lo in zip(lat_idx_sel, lon_idx_sel)],
+        dtype=object,
+    )
+
+    # ── Build output ──
+    out = xr.Dataset(
+        {
+            "lat_idx": (["site"], lat_idx_sel),
+            "lon_idx": (["site"], lon_idx_sel),
+            "latitude": (["site"], lat_sel),
+            "longitude": (["site"], lon_sel),
+            "site_id": (["site"], site_ids),
+        },
+        attrs={
+            "fraction": float(args.fraction),
+            "seed": int(args.seed),
+            "min_years": min_years,
+            "n_qualifying": n_qualifying,
+            "n_total": n_total,
+            "n_selected": n_sample,
+            "source": "select_pixels.py",
+            "valid_files": ", ".join(os.path.basename(f) for f in files),
+        },
+    )
+
+    output_path = Path(args.output_path).resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    encoding = {
+        "lat_idx": {"zlib": True, "complevel": 4, "dtype": "int32"},
+        "lon_idx": {"zlib": True, "complevel": 4, "dtype": "int32"},
+        "latitude": {"zlib": True, "complevel": 4, "dtype": "float32"},
+        "longitude": {"zlib": True, "complevel": 4, "dtype": "float32"},
+    }
+    out.to_netcdf(output_path, engine="netcdf4", encoding=encoding)
+    print(f"✓ Saved {n_sample:,} pixels → {output_path}")
+
+
+if __name__ == "__main__":
+    main()
