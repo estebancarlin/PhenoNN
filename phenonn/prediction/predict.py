@@ -58,6 +58,7 @@ from phenonn.data.lai_dataset import (
     RamLAIDataset,
     generate_site_ids_from_range,
     load_selected_pixels,
+    load_selected_pixels_for_split,
 )
 from phenonn.utils.model_factory import build_model, build_model_pft
 from phenonn.utils.diagnostics import (
@@ -96,6 +97,13 @@ def parse_args():
         help="Path to a selected_pixels*.nc (e.g. "
         "selected_pixels_PFT9.nc). When set, predict only on "
         "its sites — overrides --sites and --predict_sites.",
+    )
+    p.add_argument(
+        "--selection_split",
+        choices=["train", "validation", "test", "buffer"],
+        default="",
+        help="Use one labelled split from --selected_pixels. This preserves "
+        "the local train/validation/test partition.",
     )
     p.add_argument(
         "--sites",
@@ -177,6 +185,10 @@ def _load_pft_fracs(pft_dir: str, year: int, site_ids) -> dict:
 
 
 def _resolve_sites(args, ckpt, train_args) -> list:
+    if args.selection_split:
+        if not args.selected_pixels:
+            raise ValueError("--selection_split requires --selected_pixels.")
+        return load_selected_pixels_for_split(args.selected_pixels, args.selection_split)
     if args.selected_pixels:
         return load_selected_pixels(args.selected_pixels)
     if args.sites:

@@ -94,11 +94,24 @@ def generate_site_ids_from_range(
     return [encode_site_id(r, c) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)]
 
 
-# ── CO2 LUT (Annee_YYYY=VALUE format) ───────────────────────────────────────
+# ── CO2 LUT ─────────────────────────────────────────────────────────────────
 
 
 def load_co2_lut(path: str) -> Dict[int, float]:
-    """Parse the LaiNN-style CO2 file: one `Annee_YYYY=VALUE` per line."""
+    """Load annual CO2 from the local NetCDF artifact or LaiNN text LUT."""
+    if path.lower().endswith(".nc"):
+        with xr.open_dataset(path) as ds:
+            if "year" not in ds or "co2" not in ds:
+                raise ValueError(
+                    f"{path!r} must contain 'year' and 'co2' variables."
+                )
+            years = np.asarray(ds["year"].values).astype(int)
+            values = np.asarray(ds["co2"].values, dtype=float)
+        lut = {int(year): float(value) for year, value in zip(years, values)}
+        if not lut or not np.all(np.isfinite(values)):
+            raise ValueError(f"No finite annual CO2 values found in {path!r}.")
+        return lut
+
     lut: Dict[int, float] = {}
     with open(path) as f:
         for raw in f:
@@ -174,6 +187,7 @@ def _read_site_vectors(
     da: xr.DataArray,
     site_ids: List[str],
     value_dim: str,
+    site_id_values: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Return a (n_site, size(value_dim)) float32 matrix for the requested sites
@@ -181,7 +195,9 @@ def _read_site_vectors(
     output of `phenonn.data_creation.build_pixelset_targets`. Each site is a direct row
     lookup (a few kB); unknown site_ids come back as NaN rows.
     """
-    idx_of = {str(s): i for i, s in enumerate(da["site_id"].values)}
+    if site_id_values is None:
+        site_id_values = da["site_id"].values
+    idx_of = {str(s): i for i, s in enumerate(site_id_values)}
     rows = np.array([idx_of.get(str(s), -1) for s in site_ids], dtype=np.int64)
     out = np.full((len(site_ids), da.sizes[value_dim]), np.nan, dtype=np.float32)
     ok = rows >= 0
@@ -204,7 +220,10 @@ def _open_pft_array(path: str) -> xr.DataArray:
     two bundled libhdf5 and corrupts HDF5 ("H5DSget_num_scales <0").
     """
     ds = xr.open_dataset(path, engine="netcdf4", decode_times=False)
-    return ds["pft_frac"] if "pft_frac" in ds.data_vars else ds[list(ds.data_vars)[0]]
+    da = ds["pft_frac"] if "pft_frac" in ds.data_vars else ds[list(ds.data_vars)[0]]
+    if "site_id" in ds and "site_id" not in da.coords:
+        da = da.assign_coords(site_id=("site", ds["site_id"].values))
+    return da
 
 
 # ── Anomaly climatology helper ──────────────────────────────────────────────
@@ -237,7 +256,9 @@ def compute_climatology_lookup(
                 print(f"  [clim] {os.path.basename(path)} missing — skipped")
             continue
         with xr.open_dataset(path) as ds:
-            vals = _read_site_vectors(ds["LAI"], wanted, "dekad")  # (n_site, 36)
+            vals = _read_site_vectors(
+                ds["LAI"], wanted, "dekad", ds["site_id"].values
+            )  # (n_site, 36)
         finite = np.isfinite(vals)
         sum_ += np.where(finite, vals, 0.0)
         cnt += finite.astype(np.int32)
@@ -274,6 +295,42 @@ def load_selected_pixels(selected_path: str) -> List[str]:
     sids = ds["site_id"].values
     ds.close()
     return [str(s) for s in sids]
+
+
+def load_selected_pixel_splits(selected_path: str) -> Tuple[List[str], List[str]]:
+    """Load train/validation site pools encoded in a selected-pixels file.
+
+    The local selected-site workflow uses split codes 0=train and 1=validation;
+    test and buffer sites are intentionally excluded.
+    """
+    with xr.open_dataset(selected_path) as ds:
+        if "split" not in ds:
+            raise ValueError(f"{selected_path!r} has no 'split' variable.")
+        site_ids = np.asarray(ds["site_id"].values).astype(str)
+        splits = np.asarray(ds["split"].values)
+    train = site_ids[splits == 0].tolist()
+    validation = site_ids[splits == 1].tolist()
+    if not train or not validation:
+        raise ValueError(
+            f"{selected_path!r} must contain split code 0 (train) and 1 (validation)."
+        )
+    return train, validation
+
+
+def load_selected_pixels_for_split(selected_path: str, split: str) -> List[str]:
+    """Return one labelled site subset from a selected-pixels NetCDF file."""
+    split_codes = {"train": 0, "validation": 1, "test": 2, "buffer": 3}
+    if split not in split_codes:
+        raise ValueError(f"Unknown selection split {split!r}.")
+    with xr.open_dataset(selected_path) as ds:
+        if "split" not in ds:
+            raise ValueError(f"{selected_path!r} has no 'split' variable.")
+        site_ids = np.asarray(ds["site_id"].values).astype(str)
+        values = np.asarray(ds["split"].values)
+    selected = site_ids[values == split_codes[split]].tolist()
+    if not selected:
+        raise ValueError(f"No sites with split={split!r} in {selected_path!r}.")
+    return selected
 
 
 def load_parent01_map(selected_pixels_01: str) -> Dict[str, str]:
@@ -410,7 +467,9 @@ class LAIDataset(Dataset):
             tpath = os.path.join(target_dir, TARGETS_FNAME.format(year=y))
             if os.path.exists(tpath):
                 with xr.open_dataset(tpath) as dt:
-                    m = _read_site_vectors(dt["LAI"], site_ids, "dekad")
+                    m = _read_site_vectors(
+                        dt["LAI"], site_ids, "dekad", dt["site_id"].values
+                    )
                 targ_lut[y] = {s: m[i] for i, s in enumerate(site_ids)}
             ppath = os.path.join(pft_dir, PFT_FNAME.format(year=y))
             if os.path.exists(ppath):
@@ -768,7 +827,9 @@ class RamLAIDataset(LAIDataset):
             tpath = os.path.join(target_dir, TARGETS_FNAME.format(year=y))
             if os.path.exists(tpath):
                 with xr.open_dataset(tpath) as dt:
-                    vals = _read_site_vectors(dt["LAI"], site_list, "dekad")
+                    vals = _read_site_vectors(
+                        dt["LAI"], site_list, "dekad", dt["site_id"].values
+                    )
                 self._targ[y] = {s: vals[i] for i, s in enumerate(site_list)}
             ppath = os.path.join(pft_dir, PFT_FNAME.format(year=y))
             if os.path.exists(ppath):

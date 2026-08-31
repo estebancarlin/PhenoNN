@@ -35,6 +35,7 @@ Ordre de priorité : `--selected_pixels` > `--sites` > `--predict_sites`.
 | Option | Défaut | Rôle |
 |---|---|---|
 | `--selected_pixels` | `""` | `selected_pixels*.nc` : prédire uniquement sur ses sites. Prioritaire. |
+| `--selection_split` | `""` | Avec `--selected_pixels`, sélectionne `train`, `validation`, `test` ou `buffer` selon les labels de split du fichier. |
 | `--sites` | `""` | Liste explicite d'IDs séparés par des virgules. Prioritaire sur `--predict_sites`. |
 | `--predict_sites` | `val` | Mode automatique depuis le checkpoint : `val` (val_site_ids), `train` (train_site_ids), `all` (union), `grid` (tous les pixels de la bbox), `test` (grid \ val_site_ids, pour l'overlap). |
 | `--n_predict_sites` | `0` | Si > 0, sous-échantillonne aléatoirement ce nb de sites (graine `--seed`). |

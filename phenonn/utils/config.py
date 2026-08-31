@@ -38,6 +38,7 @@ METEO_BASE: List[str] = [
     "VPD_mean",
     "Rn_tot",
     "PET",
+    "SMI",
 ]
 
 DERIVED_FEATURES: List[str] = [
@@ -75,6 +76,7 @@ LOG_TRANSFORM_FEATURES = {
     "strd_sum",
     "VPD_max",
     "VPD_mean",
+    "SMI",
     "gdd_0",
     "gdd_5",
     "gdd_10",

@@ -48,6 +48,7 @@ from phenonn.data.lai_dataset import (
     load_co2_lut,
     load_parent01_map,
     load_selected_pixels,
+    load_selected_pixel_splits,
 )
 from phenonn.utils.loss import make_loss_fn
 from phenonn.utils.model_factory import build_model, build_model_pft
@@ -60,6 +61,64 @@ from phenonn.utils.diagnostics import (
 )
 from phenonn.utils.logger import Logger
 from phenonn.utils.utils import FileUtils
+
+
+_PRIVATE_WANDB_CONFIG = {
+    "features_dir",
+    "target_dir",
+    "pft_dir",
+    "valid_dir",
+    "selected_pixels",
+    "parent_map",
+    "stats_path",
+    "co2_path",
+    "clim_target_dir",
+    "output_dir",
+    "resume",
+}
+
+
+def initialize_wandb(args, exp_dir, model):
+    """Start optional W&B tracking without publishing local file paths."""
+    if not args.wandb:
+        return None
+    try:
+        import wandb
+    except ImportError as error:
+        raise RuntimeError(
+            'W&B monitoring requires `python -m pip install -e ".[tracking]"`.'
+        ) from error
+
+    config = {
+        key: value
+        for key, value in vars(args).items()
+        if key not in _PRIVATE_WANDB_CONFIG
+    }
+    tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+    run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity or None,
+        name=args.experiment,
+        group=args.wandb_group or None,
+        tags=tags or None,
+        mode=args.wandb_mode,
+        dir=exp_dir,
+        config=config,
+    )
+    run.config.update(
+        {
+            "model_parameters": sum(
+                parameter.numel()
+                for parameter in model.parameters()
+                if parameter.requires_grad
+            )
+        },
+        allow_val_change=True,
+    )
+    run.define_metric("epoch")
+    for namespace in ("train/*", "validation/*", "optimizer/*", "runtime/*"):
+        run.define_metric(namespace, step_metric="epoch")
+    return run
 
 
 def parse_year_list(s: str):
@@ -105,6 +164,12 @@ def parse_args():
         "from this file (and --valid_dir is ignored).",
     )
     p.add_argument(
+        "--selection_split",
+        action="store_true",
+        help="Use split=0/1 train/validation labels in --selected_pixels. "
+        "Excludes split=2 test and split=3 buffer sites.",
+    )
+    p.add_argument(
         "--parent_map",
         required=False,
         default="",
@@ -121,7 +186,7 @@ def parse_args():
         help="Optional norm_stats.json for log1p + z-scoring.",
     )
     p.add_argument(
-        "--co2_path", default="", help="Optional CO2 LUT (Annee_YYYY=VALUE per line)."
+        "--co2_path", default="", help="Optional CO2_annual.nc or text LUT."
     )
     p.add_argument(
         "--no_normalize_lai",
@@ -332,6 +397,14 @@ def parse_args():
     p.add_argument(
         "--resume", default="", help="Path to last_model.pth from a previous run."
     )
+    p.add_argument("--wandb", action="store_true")
+    p.add_argument("--wandb_project", default="phenonn-lai")
+    p.add_argument("--wandb_entity", default="")
+    p.add_argument("--wandb_group", default="")
+    p.add_argument("--wandb_tags", default="")
+    p.add_argument(
+        "--wandb_mode", choices=("online", "offline", "disabled"), default="online"
+    )
 
     return p.parse_args()
 
@@ -413,6 +486,15 @@ def _build_pools(args, all_years, logger) -> tuple:
       - `--valid_dir`  : union over all_years of valid_pixels_{Y}.nc masks,
         optionally restricted to the row/col bbox.
     """
+    if args.selection_split:
+        if not args.selected_pixels:
+            raise ValueError("--selection_split requires --selected_pixels.")
+        train_pool, val_pool = load_selected_pixel_splits(args.selected_pixels)
+        logger.info(
+            f"Selection split : train={len(train_pool):,} val={len(val_pool):,} "
+            "(test/buffer excluded)"
+        )
+        return train_pool, val_pool
     if args.selected_pixels:
         all_sites = sorted(load_selected_pixels(args.selected_pixels))
         logger.info(
@@ -506,7 +588,7 @@ def main():
         ckpt_args = resume_ckpt.get("args", {})
         explicit = _cli_explicit_args()
         for k, v in ckpt_args.items():
-            if k in explicit and k != "resume":
+            if k in explicit or k.startswith("wandb"):
                 continue
             if hasattr(args, k):
                 setattr(args, k, v)
@@ -531,6 +613,12 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device          : {device}")
+    data_loader_workers = args.num_workers
+    if os.name == "nt" and data_loader_workers:
+        # Windows uses spawn, which would serialize the entire RAM-resident
+        # dataset into each worker and can exceed its IPC/pickle limits.
+        logger.warning("Windows RAM mode forces DataLoader workers to 0.")
+        data_loader_workers = 0
     # Fixed input shapes (seq_length, batch) → let cuDNN pick the best kernels.
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True  # TF32 matmuls (Ampere+)
@@ -551,6 +639,8 @@ def main():
             raise FileNotFoundError(args.stats_path)
         with open(args.stats_path) as f:
             norm_stats = json.load(f)
+        # The selected-site workflow stores feature moments under `statistics`.
+        norm_stats = norm_stats.get("statistics", norm_stats)
         logger.info(
             f"Norm stats      : {args.stats_path}  " f"({len(norm_stats)} entries)"
         )
@@ -670,7 +760,7 @@ def main():
         val_ds,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
+        num_workers=data_loader_workers,
         pin_memory=True,
     )
     logger.info(f"Val samples     : {len(val_ds):,}")
@@ -728,6 +818,10 @@ def main():
         f"corr_loss={args.corr_loss_weight}, "
         f"amp_loss={args.amp_loss_weight})"
     )
+
+    wandb_run = initialize_wandb(args, exp_dir, model)
+    if wandb_run is not None:
+        logger.info(f"W&B run        : {wandb_run.url or args.wandb_mode}")
 
     # ── Resume restore ──
     best_val_loss = float("inf")
@@ -794,7 +888,7 @@ def main():
             Subset(train_full, indices),
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=args.num_workers,
+            num_workers=data_loader_workers,
             pin_memory=True,
             drop_last=False,
         )
@@ -828,6 +922,23 @@ def main():
         valid_hist["loss"].append(val_loss)
         valid_hist["rmse"].append(val_rmse)
         valid_hist["r2"].append(val_r2)
+
+        if wandb_run is not None:
+            wandb_run.log(
+                {
+                    "epoch": epoch,
+                    "train/loss": train_loss,
+                    "train/sites": n_sites,
+                    "train/years": n_years,
+                    "train/samples": len(indices),
+                    "validation/loss": val_loss,
+                    "validation/rmse": val_rmse,
+                    "validation/r2": val_r2,
+                    "validation/samples": len(val_ds),
+                    "optimizer/learning_rate": lr,
+                    "runtime/epoch_seconds": dt,
+                }
+            )
 
         is_best = val_loss < best_val_loss
         if is_best:
@@ -898,6 +1009,10 @@ def main():
         filename=os.path.join(exp_dir, "metric_history.png"),
         logger=logger,
     )
+    if wandb_run is not None:
+        wandb_run.summary["best_epoch"] = best_epoch
+        wandb_run.summary["best_validation_loss"] = best_val_loss
+        wandb_run.finish()
     with open(os.path.join(exp_dir, "config.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
     logger.info(f"Config saved to {os.path.join(exp_dir, 'config.json')}")

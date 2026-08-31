@@ -68,10 +68,68 @@ from phenonn.utils.config import (
 from phenonn.data_creation.build_xgb_features import XGB_FNAME
 
 
+_PRIVATE_WANDB_CONFIG = {
+    "xgb_features_dir",
+    "target_dir",
+    "pft_dir",
+    "selected_pixels",
+    "co2_path",
+    "clim_target_dir",
+    "output_dir",
+    "load_tables",
+}
+
+
+def initialize_wandb(args, exp_dir):
+    """Start optional W&B tracking without publishing local file paths."""
+    if not args.wandb:
+        return None
+    try:
+        import wandb
+    except ImportError as error:
+        raise RuntimeError(
+            'W&B monitoring requires `python -m pip install -e ".[tracking]"`.'
+        ) from error
+
+    config = {
+        key: value
+        for key, value in vars(args).items()
+        if key not in _PRIVATE_WANDB_CONFIG
+    }
+    tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+    run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity or None,
+        name=args.experiment,
+        group=args.wandb_group or None,
+        tags=tags or None,
+        mode=args.wandb_mode,
+        dir=exp_dir,
+        config=config,
+    )
+    run.define_metric("round")
+    for namespace in ("train/*", "validation/*"):
+        run.define_metric(namespace, step_metric="round")
+    return run
+
+
 # ── Torch-free pixelset readers (inlined, mirror phenonn.data.lai_dataset) ─────────
 
 
 def load_co2_lut(path: str) -> Dict[int, float]:
+    if path.lower().endswith(".nc"):
+        with xr.open_dataset(path) as ds:
+            if "year" not in ds or "co2" not in ds:
+                raise ValueError(
+                    f"{path!r} must contain 'year' and 'co2' variables."
+                )
+            years = np.asarray(ds["year"].values).astype(int)
+            values = np.asarray(ds["co2"].values, dtype=float)
+        lut = {int(year): float(value) for year, value in zip(years, values)}
+        if not lut or not np.all(np.isfinite(values)):
+            raise ValueError(f"No finite annual CO2 values found in {path!r}.")
+        return lut
+
     lut: Dict[int, float] = {}
     with open(path) as f:
         for raw in f:
@@ -317,7 +375,7 @@ def parse_args():
     p.add_argument(
         "--selected_pixels", required=True, help="selected_pixels.nc — the site pool."
     )
-    p.add_argument("--co2_path", default="", help="CO2 LUT (Annee_YYYY=VALUE).")
+    p.add_argument("--co2_path", default="", help="CO2_annual.nc or text LUT.")
 
     p.add_argument("--train_years", required=True, help="e.g. '1992-2009'.")
     p.add_argument("--val_years", required=True, help="e.g. '2010-2018'.")
@@ -369,6 +427,14 @@ def parse_args():
 
     p.add_argument("--output_dir", default="runs")
     p.add_argument("--experiment", default="xgb_baseline")
+    p.add_argument("--wandb", action="store_true")
+    p.add_argument("--wandb_project", default="phenonn-lai")
+    p.add_argument("--wandb_entity", default="")
+    p.add_argument("--wandb_group", default="")
+    p.add_argument("--wandb_tags", default="")
+    p.add_argument(
+        "--wandb_mode", choices=("online", "offline", "disabled"), default="online"
+    )
     p.add_argument(
         "--save_tables",
         action="store_true",
@@ -534,6 +600,9 @@ def main():
     exp_dir = os.path.join(args.output_dir, args.experiment)
     os.makedirs(exp_dir, exist_ok=True)
     print(f"Experiment dir : {exp_dir}")
+    wandb_run = initialize_wandb(args, exp_dir)
+    if wandb_run is not None:
+        print(f"W&B run        : {wandb_run.url or args.wandb_mode}")
 
     if args.load_tables:
         train_df, val_df, tm = _load_tables(args.load_tables)
@@ -568,6 +637,7 @@ def main():
         f"\nUsable rows    : train {len(train_df):,}/{n_tr0:,}  "
         f"val {len(val_df):,}/{n_va0:,}  (NaN-target dropped)"
     )
+
     if train_df.empty or val_df.empty:
         raise RuntimeError("Empty train or val set after NaN-target drop.")
 
@@ -644,6 +714,17 @@ def main():
         f"Trained        : {time.time() - t0:.1f}s, best_iteration={best_it}, "
         f"best_val_rmse={best_val_rmse:.5f}, best_val_mae={best_val_mae:.5f}"
     )
+    if wandb_run is not None:
+        for round_idx, val_rmse in enumerate(evals_result["val"]["rmse"]):
+            wandb_run.log(
+                {
+                    "round": round_idx,
+                    "train/mae": evals_result["train"]["mae"][round_idx],
+                    "train/rmse": evals_result["train"]["rmse"][round_idx],
+                    "validation/mae": evals_result["val"]["mae"][round_idx],
+                    "validation/rmse": val_rmse,
+                }
+            )
 
     # ── Save model + metadata + feature importance. Training ONLY — run
     #    `python -m phenonn.prediction.xgb_predict` for predictions / metrics / plots. ──
@@ -669,6 +750,11 @@ def main():
         meta["co2_lut"] = {str(k): v for k, v in info["co2_lut"].items()}
     with open(os.path.join(exp_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
+    if wandb_run is not None:
+        wandb_run.summary["best_iteration"] = best_it
+        wandb_run.summary["best_validation_rmse"] = best_val_rmse
+        wandb_run.summary["best_validation_mae"] = best_val_mae
+        wandb_run.finish()
     print(f"Model → {model_path}")
 
     try:

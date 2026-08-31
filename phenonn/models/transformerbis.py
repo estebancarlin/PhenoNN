@@ -287,7 +287,7 @@ class BiTransformer(torch.nn.Module):
         )
         return mask
 
-    def forward(self, x, return_stress=True):
+    def forward(self, x, return_stress=False):
         # n_pft=0 → no PFT conditioning; guard the x[..., -0:] full-slice pitfall.
         pft = x[:, :, -self.n_pft :] if self.n_pft > 0 else x[:, :, :0]
         mask = self._causal_mask(x.size(1), x.device)

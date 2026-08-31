@@ -127,6 +127,11 @@ Deux sources possibles ; **fournis l'une des deux** :
 | `--experiment` | `exp_big` | Sous-dossier du run. |
 | `--seed` | `42` | Graine (numpy + torch + échantillonnage). |
 | `--resume` | `""` | Chemin d'un `last_model.pth` : reprend modèle/optim/scheduler/historique. Les args du checkpoint priment, sauf ceux passés explicitement en ligne de commande. |
+| `--wandb` | off | Active le suivi Weights & Biases. Nécessite `python -m pip install -e ".[tracking]"`. |
+| `--wandb_project` | `phenonn-lai` | Projet W&B. |
+| `--wandb_entity` / `--wandb_group` | `""` | Entité et groupe W&B optionnels. |
+| `--wandb_tags` | `""` | Tags séparés par des virgules. |
+| `--wandb_mode` | `online` | `online`, `offline` ou `disabled`. |
 
 ---
 
