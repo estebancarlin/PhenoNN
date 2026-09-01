@@ -4,7 +4,7 @@ Point d'entrée : `python -m phenonn.training.train_full_ram [options]`
 (`train_full_ram` est autonome : il charge en RAM une fois le *working-set* des
 sites que la boucle échantillonnera, puis fait 0 I/O par epoch).
 
-Un run écrit dans `<output_dir>/<experiment>/` : `checkpoints/{last,best}_model.pth`,
+Un run écrit dans `<output_dir>/<experiment>/` : `checkpoints/{last,best,best_rmse}_model.pth`,
 `logs/train.log`, `loss_history.png`, `metric_history.png`, `config.json`.
 
 ---

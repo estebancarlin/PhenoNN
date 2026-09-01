@@ -825,6 +825,7 @@ def main():
 
     # ── Resume restore ──
     best_val_loss = float("inf")
+    best_val_rmse = float("inf")
     best_epoch = 0
     epochs_no_improve = 0
     start_epoch = 1
@@ -837,6 +838,7 @@ def main():
         train_hist = resume_ckpt.get("train_hist", train_hist)
         valid_hist = resume_ckpt.get("valid_hist", valid_hist)
         best_val_loss = resume_ckpt.get("best_val_loss", best_val_loss)
+        best_val_rmse = resume_ckpt.get("best_val_rmse", best_val_rmse)
         best_epoch = resume_ckpt.get("best_epoch", best_epoch)
         epochs_no_improve = resume_ckpt.get("epochs_no_improve", 0)
         start_epoch = resume_ckpt["epoch"] + 1
@@ -941,12 +943,15 @@ def main():
             )
 
         is_best = val_loss < best_val_loss
+        is_best_rmse = val_rmse < best_val_rmse
         if is_best:
             best_val_loss = val_loss
             best_epoch = epoch
             epochs_no_improve = 0
         else:
             epochs_no_improve += 1
+        if is_best_rmse:
+            best_val_rmse = val_rmse
 
         snapshot = {
             "epoch": epoch,
@@ -975,6 +980,7 @@ def main():
             "train_hist": train_hist,
             "valid_hist": valid_hist,
             "best_val_loss": best_val_loss,
+            "best_val_rmse": best_val_rmse,
             "best_epoch": best_epoch,
             "epochs_no_improve": epochs_no_improve,
         }
@@ -982,6 +988,11 @@ def main():
         if is_best:
             torch.save(snapshot, os.path.join(ckpt_dir, "best_model.pth"))
             logger.success(f"  ✓ Best checkpoint saved " f"(val_loss={val_loss:.6f})")
+        if is_best_rmse:
+            torch.save(snapshot, os.path.join(ckpt_dir, "best_rmse_model.pth"))
+            logger.success(
+                f"  ✓ Best RMSE checkpoint saved " f"(val_rmse={val_rmse:.5f})"
+            )
 
         if epochs_no_improve >= args.patience:
             logger.warning(
@@ -1012,6 +1023,7 @@ def main():
     if wandb_run is not None:
         wandb_run.summary["best_epoch"] = best_epoch
         wandb_run.summary["best_validation_loss"] = best_val_loss
+        wandb_run.summary["best_validation_rmse"] = best_val_rmse
         wandb_run.finish()
     with open(os.path.join(exp_dir, "config.json"), "w") as f:
         json.dump(vars(args), f, indent=2)
