@@ -111,3 +111,82 @@ until model choices are frozen.
 LSTM is retained as the frozen baseline. AELSTM and BiTransformer V2 are not
 scheduled for additional tuning unless a later scientific comparison requires
 them.
+
+## Upstream 0.05-Degree Audit (2026-10-01)
+
+### Record of the review
+
+- Imported `upstream/main` commit `4a4c8be` in local merge commit `84943d1`.
+  The import adds the 0.05-degree parent-map pipeline, daily-LAI mode, larger
+  sweep tooling, climatology skill analysis, feature ablation, perturbation,
+  PFT-mixing, and temporal-generalization workflows.
+- Reviewed `Rapport_de_stage_4A_PPeylinpdf.pdf` and `PhenoNN_final.pdf`.
+  The report is the primary source; the presentation/poster contains earlier,
+  incompatible experiments and must not be pooled with report results.
+- The report's headline AELSTM result (`R2=0.9553`, RMSE `0.3054`) uses a
+  temporal split with the same sites in training (`1992-2009`) and validation
+  (`2010-2019`). It is not comparable with this project's spatially isolated
+  validation protocol (`1993-2014` versus `2015-2016`).
+- The local selected Attention-LSTM result remains `RMSE=0.4192 +/- 0.0132`,
+  mean `R2=0.8861`, from the spatial validation protocol. It is the empirical
+  reference until models are compared under one frozen protocol.
+- The report's main scientific finding is weak interannual skill: the best
+  per-site-climatology anomaly result is AELSTM `R2=0.0780`, RMSE `0.2183`,
+  compared with a zero-anomaly climatology RMSE of `0.2274`. Raw-LAI seasonal
+  skill should therefore not be interpreted as strong anomaly prediction.
+- The report's raw-LAI table is internally non-reproducible as written:
+  climatology has higher global R2 (`0.9636`) but worse RMSE (`0.3570`) than
+  AELSTM (`0.9553`, `0.3054`). With the stated common pooled R2 definition,
+  that requires different masks or populations, or a reporting/calculation
+  error. Recompute both on identical finite observations before using the
+  comparison.
+- The report appendix poster is a separate 40,000-cell US-plains experiment
+  with a spatial 80/20 split and different years. Its AELSTM `R2=0.9071`,
+  RMSE `0.2685`, and adjacent-time daily-change result are not comparable with
+  either the report's global temporal split or this project's spatial split.
+
+### What upstream changed technically
+
+| Area | Upstream method | Local state before import | Implication |
+| --- | --- | --- | --- |
+| Spatial support | 0.05-degree LAI/PFT sites mapped to deduplicated 0.1-degree ERA5 parents | Selected-site 0.1-degree workflow | More target/PFT detail, but weather remains 0.1 degree and cannot create sub-grid meteorological information. |
+| Inputs | 730 days, 12 weather variables including day length and 30-day precipitation SMI, CO2, 15 PFT fractions (28 channels) | 720 days, 11 dynamic weather channels, CO2, 15 PFTs (27 channels) | Existing checkpoints and statistics are schema-incompatible; regenerate data/statistics for a 28-channel run. |
+| Target | 36 observed dekads; optional 365-day linear interpolation for training | 36 observed dekads | Daily interpolation adds smooth synthetic supervision, not new observations. |
+| Loss/training | Huber default, 300 epochs, scheduler, early stopping, broad sweep | MSE plus selected correlation term, 50-epoch comparison budget | Upstream had a substantially larger optimization budget. |
+| Split | Primarily temporal, same locations across periods | Clustered spatial holdout | Their task is easier and answers a different scientific question. |
+| Structure | Optional PFT-mixing output layer | Global-LAI prediction selected | PFT curves are weakly identified because only their weighted sum is observed. |
+| Evaluation | Climatology, anomaly, site-year, interannual and perturbation analyses | Raw RMSE/R2 and spatial evaluation | These diagnostics are required before scientific or ORCHIDEE claims. |
+
+### Recommended next experiments and expected outcomes
+
+Run each candidate on the frozen local spatial validation split. Do not use the
+already inspected 2017-2018 test set for selection. Report physical-unit RMSE,
+pooled and site-centred R2, per-site-year R2, interannual R2, and a
+training-period per-site climatology baseline using the identical target mask.
+
+| Priority | Experiment | Expected outcome | Decision rule |
+| --- | --- | --- | --- |
+| 1 | Add a training-period per-site climatology and anomaly evaluation to every selected model | Clarifies whether improvements are seasonal-shape fit or real interannual skill; raw RMSE may remain good while anomaly skill is near zero | Require an improvement over climatology on held-out spatial sites before claiming added predictive value. |
+| 2 | Rebuild one matched 28-channel dataset: 730-day window plus day length; retain local spatial split and training-only normalization | Day length may improve autumn and the extra 10 days remove an arbitrary mismatch; expect a modest, uncertain raw-RMSE change rather than an upstream-sized jump | Keep only if mean validation RMSE improves across seeds and climatology-relative metrics do not regress. |
+| 3 | Compare selected Attention-LSTM with AELSTM under the exact same local data, epochs, schedule, and seeds | AELSTM may not win: upstream's raw-LAI advantage was under an easier same-site split and a larger sweep | Treat architecture as a replacement only if it improves mean spatial RMSE and centred/interannual metrics. |
+| 4 | Compare MSE plus correlation loss against NaN-safe Huber, with the same 128/128 Attention-LSTM and longer early-stopped budget | Huber may improve robustness to GEOV2 outliers; correlation loss already improved local RMSE, so neither result should be assumed | Select by the best-RMSE checkpoint on spatial validation, then compare climatology-relative metrics. |
+| 5 | Test daily-interpolated training against dekadal-only training, evaluating only the 36 real dekads | May smooth seasonal curves and stabilize gradients, but cannot add observational information and can bias timing between dekads | Retain only if real-dekad spatial metrics improve; do not report interpolated-day validation as independent accuracy. |
+| 6 | Perform grouped feature ablation and add actual/reanalysed root-zone soil water if available | Day length and temperature should matter; replacing SMI can improve water-limited regions more plausibly than further architecture tuning | Evaluate by climate/PFT region and retain a feature only with reproducible held-out benefit. |
+| 7 | Run PFT mixing and virtual-pure-cell linearity tests after the global model is frozen | It may improve ORCHIDEE interface interpretability but can reduce or leave unchanged aggregate LAI accuracy; pure PFT curves are not uniquely identified | Do not call outputs PFT-specific LAI without purity, greedy-reference, and linearity diagnostics. |
+| 8 | Make the Attention-LSTM strictly causal before perturbation or coupling work | May slightly lower in-sample skill because the current centred convolution reads `t+1`, but removes future-information leakage | Use causal models for all memory, perturbation, and prospective ORCHIDEE experiments. |
+
+### Scientific expectations
+
+The highest-confidence near-term improvement is not a large raw-RMSE jump. It
+is a defensible evaluation showing whether spatially held-out models beat a
+training-only climatology on interannual anomalies. More sites, 730-day input,
+day length, a longer schedule, and a Huber comparison can improve raw spatial
+RMSE, but no evidence supports expecting the report's `R2=0.955` under this
+harder split. Daily interpolation and PFT mixing are useful methodological
+experiments, not assumed accuracy improvements.
+
+For the ORCHIDEE objective, use the least invasive coupling first: derive SOS
+and EOS from a strictly causal PhenoNN trajectory and retain ORCHIDEE carbon
+allocation. Directly overwriting LAI would violate allocation, carbon, and
+nitrogen mass-balance constraints. Evaluate any coupling against independent
+carbon, water, and energy flux observations, not only GEOV2 LAI.
