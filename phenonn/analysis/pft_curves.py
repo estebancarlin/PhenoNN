@@ -2,7 +2,7 @@
 """
 PFT decomposition visualization (PhenoNN pixelset pipeline).
 
-Loads a model trained with `--pft_mixing` (phenonn.training.train_full_ram,
+Loads a model trained with `--pft_mixing` (phenonn.training.train_global / phenonn.training.train_full_ram,
 `model_kind='phenon_big'`, `pft_mixing=True`) and plots the 15 "pure" LAI curves
 — one per Plant Functional Type — for each selected site and year.
 
@@ -46,7 +46,7 @@ import matplotlib.pyplot as plt
 
 from phenonn.utils.config import N_PFT, PFT_NAMES
 from phenonn.data.lai_dataset import RamLAIDataset, load_selected_pixels
-from phenonn.utils.model_factory import build_model_pft
+from phenonn.utils.model_loader import build_model_pft
 from phenonn.utils.utils import EasyDict
 
 

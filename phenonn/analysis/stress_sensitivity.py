@@ -51,7 +51,7 @@ import torch
 
 from phenonn.utils.config import PFT_NAMES
 from phenonn.data.lai_dataset import RamLAIDataset, load_selected_pixels
-from phenonn.utils.model_factory import build_model, build_model_pft
+from phenonn.utils.model_loader import build_model, build_model_pft
 from phenonn.models.bitransformer import BiTransformerV2
 from phenonn.utils.utils import EasyDict
 

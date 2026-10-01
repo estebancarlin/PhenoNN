@@ -50,7 +50,7 @@ import pandas as pd
 import torch
 
 from phenonn.data.lai_dataset import RamLAIDataset, load_co2_lut, load_selected_pixels
-from phenonn.utils.model_factory import build_model
+from phenonn.utils.model_loader import build_model
 
 
 # 36 obs (month, day, doy) — non-leap year, same convention as predict.py

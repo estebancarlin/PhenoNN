@@ -6,13 +6,13 @@ predict.py
 LAI inference for PhenoNN checkpoints. Port of LaiNN/phenocam/prediction_big.py
 adapted to the *pixelset* data pipeline: every input is a flat `site`-indexed
 NetCDF keyed by `site_id` (the old full-grid lat/lon layout is no longer
-accepted), exactly like `phenonn.training.train_full_ram`:
+accepted), exactly like `phenonn.training.train_global`:
 
   - features : ERA5_daily_pixelset_{Y}.nc  (per-site daily series)
   - targets  : LAI_dekadal_{Y}.nc          (pixelset LAI(dekad, site))
   - PFT      : PFTmap_{Y}.nc               (pixelset pft_frac(pft, site))
 
-Loads `best_model.pth` (or any snapshot) produced by `phenonn.training.train_full_ram`, restores
+Loads `best_model.pth` (or any snapshot) produced by `phenonn.training.train_global`, restores
 the model, builds an `LAIDataset` over the requested sites × years, runs
 inference, recovers physical LAI (handling normalization + anomaly mode),
 and writes a CSV compatible with the existing diagnostics scripts:
@@ -35,7 +35,7 @@ Site selection
 
 Usage
 -----
-    python -m prediction.predict \\
+    python -m phenonn.prediction.predict \\
         --checkpoint runs_final/exp/checkpoints/best_model.pth \\
         --features_dir /data/sbarbu/era5_features \\
         --target_dir   /data/sbarbu/targets \\
@@ -53,21 +53,22 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from phenonn.utils.config import PFT_FNAME, PFT_NAMES
 from phenonn.data.lai_dataset import (
     RamLAIDataset,
     generate_site_ids_from_range,
+    load_parent01_map,
     load_selected_pixels,
     load_selected_pixels_for_split,
 )
-from phenonn.utils.model_factory import build_model, build_model_pft
+from phenonn.utils.config import ALL_FEATURES, PFT_FNAME, PFT_NAMES
 from phenonn.utils.diagnostics import (
-    plot_pred_vs_obs,
     plot_gcc_curves,
     plot_gcc_curves_all,
+    plot_pred_vs_obs,
 )
+from phenonn.utils.model_loader import build_model, build_model_pft
 from phenonn.utils.utils import EasyDict
-
+from phenonn.utils.wrappers import _OBS_POSITIONS
 
 # 36 obs (month, day, doy) — non-leap year
 _OBS_DATES = [
@@ -87,6 +88,17 @@ def parse_args():
     p.add_argument("--target_dir", default="")
     p.add_argument("--pft_dir", default="")
     p.add_argument(
+        "--parent_map",
+        default="",
+        help="Optional selected_pixels_01.nc (data_creation."
+        "make_selected_pixels_01). When set, ERA5 features are "
+        "read from the deduplicated 0.1° ERA5_daily_pixelset "
+        "(site_id 'E{lat}_{lon}') via each 0.05° site's parent "
+        "cell, instead of a 0.05°-indexed feature file. "
+        "Targets/PFT stay on the 0.05° sites. Must match the "
+        "--parent_map used at training.",
+    )
+    p.add_argument(
         "--predict_sites",
         default="val",
         choices=["val", "train", "all", "grid", "test"],
@@ -102,13 +114,13 @@ def parse_args():
         "--selection_split",
         choices=["train", "validation", "test", "buffer"],
         default="",
-        help="Use one labelled split from --selected_pixels. This preserves "
-        "the local train/validation/test partition.",
+        help="Use one labelled split from --selected_pixels. This "
+        "preserves the local spatial partition.",
     )
     p.add_argument(
         "--sites",
         default="",
-        help="Comma-separated explicit site IDs — overrides " "--predict_sites.",
+        help="Comma-separated explicit site IDs — overrides --predict_sites.",
     )
     p.add_argument(
         "--n_predict_sites",
@@ -144,6 +156,13 @@ def parse_args():
         "Otherwise a random subset of this size is drawn.",
     )
     p.add_argument(
+        "--ablate_features",
+        default="",
+        help="Comma list of features the model was TRAINED without. "
+        "Normally read from the checkpoint; use this to force it "
+        "when the checkpoint predates that bookkeeping.",
+    )
+    p.add_argument(
         "--pft_min_frac",
         type=float,
         default=0.05,
@@ -171,7 +190,7 @@ def _load_pft_fracs(pft_dir: str, year: int, site_ids) -> dict:
     if not os.path.exists(path):
         return {}
     ds = xr.open_dataset(path, engine="netcdf4", decode_times=False)
-    da = ds["pft_frac"] if "pft_frac" in ds.data_vars else ds[list(ds.data_vars)[0]]
+    da = ds["pft_frac"] if "pft_frac" in ds.data_vars else ds[next(iter(ds.data_vars))]
     all_sites = np.asarray(ds["site_id"].values).astype(str)
     arr = da.transpose("pft", "site").values.astype(np.float32)  # (N_PFT, n_all)
     ds.close()
@@ -188,7 +207,9 @@ def _resolve_sites(args, ckpt, train_args) -> list:
     if args.selection_split:
         if not args.selected_pixels:
             raise ValueError("--selection_split requires --selected_pixels.")
-        return load_selected_pixels_for_split(args.selected_pixels, args.selection_split)
+        return load_selected_pixels_for_split(
+            args.selected_pixels, args.selection_split
+        )
     if args.selected_pixels:
         return load_selected_pixels(args.selected_pixels)
     if args.sites:
@@ -227,6 +248,8 @@ def main():
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     train_args = EasyDict(ckpt["args"])
     norm_stats = ckpt.get("norm_stats", None)
+    if norm_stats is not None:
+        norm_stats = norm_stats.get("statistics", norm_stats)
     co2_lut = ckpt.get("co2_lut", None)
     anomaly_clim = ckpt.get("anomaly_clim", None) if ckpt.get("anomaly_mode") else None
     is_anomaly = bool(ckpt.get("anomaly_mode", False))
@@ -255,6 +278,18 @@ def main():
             "or use a checkpoint that stored them."
         )
 
+    # ── 0.05°→0.1° parent map (optional) ── falls back to the checkpoint's
+    #    training --parent_map so inference reads features the same way.
+    parent_map_path = args.parent_map or train_args.get("parent_map", "")
+    parent_map = None
+    if parent_map_path:
+        if not os.path.exists(parent_map_path):
+            raise FileNotFoundError(parent_map_path)
+        parent_map = load_parent01_map(parent_map_path)
+        print(
+            f"Parent map    : {parent_map_path}  ({len(parent_map):,} 0.05°→0.1° links)"
+        )
+
     # ── Rebuild model ──
     if is_pft_mixing:
         model = build_model_pft(train_args, norm_stats).to(device)
@@ -265,6 +300,32 @@ def main():
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     print(f"Model         : {train_args.get('type')} + {wrapper_label}")
+
+    # ── Daily-trained model: it outputs 365 days, but the targets here are the
+    #    36 dekads → sample the prediction at the dekad positions. ──
+    is_daily = bool(train_args.get("daily_lai", False))
+    obs_pos = torch.tensor(_OBS_POSITIONS, dtype=torch.long)
+    if is_daily:
+        print("Daily model   : sampling the 365-day output at the 36 dekads")
+
+    # ── Trained with ablated features → zero the SAME channels at inference,
+    #    otherwise the model sees inputs it never saw during training. ──
+    abl_spec = args.ablate_features or str(train_args.get("ablate_features", "") or "")
+    abl_feats = [f.strip() for f in abl_spec.split(",") if f.strip()]
+    if abl_feats:
+        abl_ch = [ALL_FEATURES.index(f) for f in abl_feats]
+
+        def _ablate_hook(_mod, inputs):
+            t = inputs[0]
+            if not torch.is_tensor(t):
+                return None
+            t = t.clone()
+            for c in abl_ch:
+                t[:, c, :] = 0.0
+            return (t,) + tuple(inputs[1:])
+
+        model.register_forward_pre_hook(_ablate_hook)
+        print(f"Ablation      : re-applied {abl_feats} (channels {abl_ch})")
 
     # ── Resolve sites and years ──
     site_ids = _resolve_sites(args, ckpt, train_args)
@@ -300,6 +361,7 @@ def main():
         co2_lut=co2_lut,
         normalize_lai=lai_normalized,
         verbose=True,
+        parent_map=parent_map,
     )
     if len(dataset) == 0:
         raise RuntimeError("No prediction samples produced.")
@@ -318,6 +380,8 @@ def main():
     with torch.no_grad():
         for i_batch, (features, targets) in enumerate(loader):
             preds = model(features.to(device)).cpu()
+            if is_daily:
+                preds = preds[:, :, obs_pos]  # (B, 1, 365) → (B, 1, 36)
             batch_start = i_batch * args.batch_size
             for j in range(preds.size(0)):
                 idx = batch_start + j
@@ -401,6 +465,29 @@ def main():
                 continue
             site_r2s.append(1.0 - float(np.sum((p - o) ** 2)) / sstot)
 
+        # ── R² decomposition (paper-style): overall / site-year / interannual ──
+        #   overall     : one NSE over all (site, year, dekad) points (= r2_global).
+        #   site-year   : NSE within each site-year (its 36 dekads) → mean ± std.
+        #   interannual : NSE across site-years at a FIXED day-of-year → mean ± std.
+        def _nse(o, p, nmin=5):
+            o = np.asarray(o, float)
+            p = np.asarray(p, float)
+            sstot = float(np.sum((o - o.mean()) ** 2))
+            if len(o) < nmin or sstot <= 0:
+                return None
+            return 1.0 - float(np.sum((p - o) ** 2)) / sstot
+
+        siteyear_r2 = [
+            r
+            for _, g in valid.groupby(["site_id", "year"])
+            if (r := _nse(g["lai_obs"], g["lai_pred"])) is not None
+        ]
+        interann_r2 = [
+            r
+            for _, g in valid.groupby("doy")
+            if (r := _nse(g["lai_obs"], g["lai_pred"])) is not None
+        ]
+
         # ── Build summary (printed and saved to <output>_metrics.txt) ──
         summary_lines.append("── Pooled metrics ──")
         summary_lines.append(
@@ -425,13 +512,45 @@ def main():
                 f"── Per-site R² (NSE) distribution ({len(arr)} sites) ──"
             )
             summary_lines.append(f"  Median         : {np.median(arr):+.4f}")
-            summary_lines.append(f"  Mean           : {np.mean(arr):+.4f}")
+            summary_lines.append(
+                f"  Mean ± std     : {np.mean(arr):+.4f} ± {np.std(arr):.4f}"
+            )
             summary_lines.append(f"  5th  percentile: {np.percentile(arr, 5):+.4f}")
             summary_lines.append(f"  95th percentile: {np.percentile(arr, 95):+.4f}")
             summary_lines.append(
                 f"  Sites with R²>0: {n_pos:,} / {len(arr):,} "
                 f"({100.0 * n_pos / len(arr):.1f}%)"
             )
+
+        # ── R² decomposition (overall / site-year / interannual) ──
+        sy = np.array(siteyear_r2, dtype=float)
+        ia = np.array(interann_r2, dtype=float)
+        r2_items = [
+            ("Overall      R²", r2_global, None, ""),
+            (
+                "Site-year    R²",
+                float(sy.mean()) if sy.size else float("nan"),
+                float(sy.std()) if sy.size else None,
+                f" (n={sy.size} site-years)",
+            ),
+            (
+                "Interannual  R²",
+                float(ia.mean()) if ia.size else float("nan"),
+                float(ia.std()) if ia.size else None,
+                f" (n={ia.size} DOYs)",
+            ),
+        ]
+        finite = [m for _, m, _, _ in r2_items if np.isfinite(m)]
+        best = max(finite) if finite else None
+        summary_lines.append("")
+        summary_lines.append(
+            "── R² decomposition (overall / site-year / interannual) ──"
+        )
+        for label, m, s, note in r2_items:
+            txt = f"{m:+.4f}" if s is None else f"{m:+.4f} ± {s:.4f}"
+            if best is not None and np.isfinite(m) and m == best:
+                txt = f"**{txt}**"  # best value in bold
+            summary_lines.append(f"  {label} : {txt}{note}")
 
         print("\n" + "\n".join(summary_lines))
 
@@ -451,7 +570,7 @@ def main():
             valid["lai_pred"].values,
             valid["lai_obs"].values,
             filename=base + "_pred_vs_obs.png",
-            title=f"PhenoNN — Predicted vs observed LAI " f"({len(valid):,} pts)",
+            title=f"PhenoNN — Predicted vs observed LAI ({len(valid):,} pts)",
         )
         if is_anomaly:
             plot_pred_vs_obs(
@@ -523,8 +642,7 @@ def main():
                 sub["lai_pred"].values,
                 sub["lai_obs"].values,
                 filename=os.path.join(year_dir, f"year_{yr}_pred_vs_obs.png"),
-                title=f"Year {yr} — R²={r2_y:+.4f} RMSE={rmse_y:.4f} "
-                f"n={len(sub):,}",
+                title=f"Year {yr} — R²={r2_y:+.4f} RMSE={rmse_y:.4f} n={len(sub):,}",
             )
 
     print("Done.")

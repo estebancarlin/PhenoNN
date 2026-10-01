@@ -43,9 +43,11 @@ behaviour to the dataset_big.py implementation it replaces.
 """
 
 import os
+import time
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 import xarray as xr
 from torch.utils.data import Dataset
@@ -66,6 +68,29 @@ from phenonn.utils.config import (
     VALID_FNAME,
     add_co2_features,
 )
+from phenonn.utils.wrappers import _OBS_POSITIONS
+
+# Daily-LAI mode (--daily_lai): 365-day interpolated target files and the
+# 0-indexed positions of the 36 dekad observations within a 365-day year.
+LAI_DAILY_FNAME = "LAI_daily_{year}.nc"
+N_DAYS_YEAR = 365
+_OBS_POSITIONS_ARR = np.array(_OBS_POSITIONS, dtype=np.int64)
+
+
+def _clim36_to_365(clim36: np.ndarray) -> np.ndarray:
+    """Linear-interpolate a (36,) dekadal climatology onto the 365-day grid at
+    the dekad DOY anchors (same interp as the daily target). NaN if <2 finite
+    dekads; the values at the 36 dekad DOYs are preserved exactly."""
+    finite = np.isfinite(clim36)
+    out = np.full(N_DAYS_YEAR, np.nan, dtype=np.float32)
+    if int(finite.sum()) >= 2:
+        doy = (_OBS_POSITIONS_ARR + 1).astype(np.float64)  # 1-based dekad DOYs
+        out[:] = np.interp(
+            np.arange(1, N_DAYS_YEAR + 1),
+            doy[finite],
+            clim36[finite].astype(np.float64),
+        ).astype(np.float32)
+    return out
 
 
 # ── Site-ID encoding ────────────────────────────────────────────────────────
@@ -94,7 +119,7 @@ def generate_site_ids_from_range(
     return [encode_site_id(r, c) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)]
 
 
-# ── CO2 LUT ─────────────────────────────────────────────────────────────────
+# ── CO2 LUT (Annee_YYYY=VALUE format) ───────────────────────────────────────
 
 
 def load_co2_lut(path: str) -> Dict[int, float]:
@@ -102,9 +127,7 @@ def load_co2_lut(path: str) -> Dict[int, float]:
     if path.lower().endswith(".nc"):
         with xr.open_dataset(path) as ds:
             if "year" not in ds or "co2" not in ds:
-                raise ValueError(
-                    f"{path!r} must contain 'year' and 'co2' variables."
-                )
+                raise ValueError(f"{path!r} must contain 'year' and 'co2' variables.")
             years = np.asarray(ds["year"].values).astype(int)
             values = np.asarray(ds["co2"].values, dtype=float)
         lut = {int(year): float(value) for year, value in zip(years, values)}
@@ -183,30 +206,41 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
 # ── Pixelset-aware per-site extraction ──────────────────────────────────────
 
 
+def _site_row_index(da: xr.DataArray, site_ids: List[str]) -> np.ndarray:
+    """rows[i] = row of site_ids[i] in da's `site_id` coord (-1 if absent).
+
+    Vectorised (pandas hash join in C). The pixelset `site_id` coord is identical
+    across years, so callers build this ONCE and reuse it for every year's file.
+    """
+    file_ids = pd.Index(np.asarray(da["site_id"].values).astype(str))
+    return file_ids.get_indexer(pd.Index([str(s) for s in site_ids]))
+
+
 def _read_site_vectors(
     da: xr.DataArray,
     site_ids: List[str],
     value_dim: str,
-    site_id_values: Optional[np.ndarray] = None,
+    rows: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     Return a (n_site, size(value_dim)) float32 matrix for the requested sites
     from a pixelset LAI/PFT DataArray — a `site` dim with a `site_id` coord,
-    output of `phenonn.data_creation.build_pixelset_targets`. Each site is a direct row
-    lookup (a few kB); unknown site_ids come back as NaN rows.
+    output of `phenonn.data_creation.build_pixelset_targets`. Unknown site_ids
+    come back as NaN rows. `rows` (optional) skips the id→row lookup when the
+    caller has precomputed it (the pixelset site_id is identical every year).
     """
-    if site_id_values is None:
-        site_id_values = da["site_id"].values
-    idx_of = {str(s): i for i, s in enumerate(site_id_values)}
-    rows = np.array([idx_of.get(str(s), -1) for s in site_ids], dtype=np.int64)
+    if rows is None:
+        rows = _site_row_index(da, site_ids)
     out = np.full((len(site_ids), da.sizes[value_dim]), np.nan, dtype=np.float32)
     ok = rows >= 0
     if ok.any():
-        out[ok] = (
-            da.isel(site=rows[ok])
-            .transpose("site", value_dim)
-            .values.astype(np.float32)
-        )
+        # LAI/PFT pixelsets use VERY large site-chunks (~4-5e5 sites, ~10-15 MB),
+        # so a scattered per-site isel decompresses those huge chunks repeatedly
+        # (minutes). These variables are small in total (LAI ~240 MB, PFT ~100 MB),
+        # so read the WHOLE variable ONCE sequentially, then gather rows in memory
+        # — matches build_pixelset_targets' own read-once approach, no thrashing.
+        full = da.transpose("site", value_dim).values  # one sequential read
+        out[ok] = full[rows[ok]].astype(np.float32)
     return out
 
 
@@ -256,9 +290,7 @@ def compute_climatology_lookup(
                 print(f"  [clim] {os.path.basename(path)} missing — skipped")
             continue
         with xr.open_dataset(path) as ds:
-            vals = _read_site_vectors(
-                ds["LAI"], wanted, "dekad", ds["site_id"].values
-            )  # (n_site, 36)
+            vals = _read_site_vectors(ds["LAI"], wanted, "dekad")  # (n_site, 36)
         finite = np.isfinite(vals)
         sum_ += np.where(finite, vals, 0.0)
         cnt += finite.astype(np.int32)
@@ -298,11 +330,7 @@ def load_selected_pixels(selected_path: str) -> List[str]:
 
 
 def load_selected_pixel_splits(selected_path: str) -> Tuple[List[str], List[str]]:
-    """Load train/validation site pools encoded in a selected-pixels file.
-
-    The local selected-site workflow uses split codes 0=train and 1=validation;
-    test and buffer sites are intentionally excluded.
-    """
+    """Load train/validation pools from local spatial split labels."""
     with xr.open_dataset(selected_path) as ds:
         if "split" not in ds:
             raise ValueError(f"{selected_path!r} has no 'split' variable.")
@@ -467,9 +495,7 @@ class LAIDataset(Dataset):
             tpath = os.path.join(target_dir, TARGETS_FNAME.format(year=y))
             if os.path.exists(tpath):
                 with xr.open_dataset(tpath) as dt:
-                    m = _read_site_vectors(
-                        dt["LAI"], site_ids, "dekad", dt["site_id"].values
-                    )
+                    m = _read_site_vectors(dt["LAI"], site_ids, "dekad")
                 targ_lut[y] = {s: m[i] for i, s in enumerate(site_ids)}
             ppath = os.path.join(pft_dir, PFT_FNAME.format(year=y))
             if os.path.exists(ppath):
@@ -740,10 +766,20 @@ class RamLAIDataset(LAIDataset):
         verbose: bool = True,
         threaded_read: bool = False,
         parent_map: Optional[Dict[str, str]] = None,
+        daily_mode: str = "off",
+        daily_target_dir: str = "",
     ) -> None:
         # Skip the parent's disk-walking __init__; set only what the reused
         # assembly helpers rely on.
         Dataset.__init__(self)
+        # daily_mode selects how the LAI target is produced:
+        #   "off"    → 36 dekad values (default, historical behaviour)
+        #   "interp" → the 365-day linear-interpolated curve (train: loss on all days)
+        #   "obs"    → 365-day grid, real dekads scattered at their DOY, NaN elsewhere
+        #              (val/predict: the NaN-safe loss then scores only real obs days)
+        if daily_mode not in ("off", "interp", "obs"):
+            raise ValueError(f"daily_mode must be off/interp/obs, got {daily_mode!r}")
+        self.daily_mode = daily_mode
         # parent_map {site_id05: site_id01}: when set, ERA5 features live on the
         # deduplicated 0.1° grid (ERA5_daily_pixelset with site_id "E{lat}_{lon}")
         # and each requested 0.05° site reads the row of its containing 0.1° cell.
@@ -771,29 +807,37 @@ class RamLAIDataset(LAIDataset):
             if not os.path.exists(path):
                 return None
             with xr.open_dataset(path) as ds:
-                idx_of = {str(s): i for i, s in enumerate(ds["site_id"].values)}
-                # `s` (dict key / self._row key) stays the 0.05° site id; only the
-                # ERA5 row lookup goes through the 0.1° parent id when parent_map
-                # is set. Without parent_map, feat site_id == requested site_id.
+                # `s` (self._row key) stays the 0.05° site id; only the ERA5 row
+                # lookup goes through the 0.1° parent id when parent_map is set.
+                # Without parent_map, feat site_id == requested site_id.
                 pm = self.parent_map
                 if pm is None:
-                    rows = [(s, idx_of[s]) for s in site_list if s in idx_of]
+                    keys = list(site_list)
+                    feat = keys
                 else:
-                    rows = [
-                        (s, idx_of[pm[s]])
-                        for s in site_list
-                        if s in pm and pm[s] in idx_of
-                    ]
-                if not rows:
+                    keys = [s for s in site_list if s in pm]
+                    feat = [pm[s] for s in keys]
+                if not keys:
                     return None
-                sel = np.array([r for _, r in rows], dtype=np.int64)
+                # Vectorised id→row lookup (pandas, C hash) over the file's coord.
+                file_ids = pd.Index(np.asarray(ds["site_id"].values).astype(str))
+                feat_rows = file_ids.get_indexer(pd.Index(feat))  # -1 if absent
+                keep = feat_rows >= 0
+                if not keep.any():
+                    return None
+                keys = [k for k, ok in zip(keys, keep) if ok]
+                sel = feat_rows[keep].astype(np.int64)  # parent rows (may repeat)
                 n_t = ds.sizes["time"]
-                # Per-variable read into a preallocated (site, time, var) buffer —
-                # avoids xarray's .to_array().transpose() copy of the whole cube.
                 arr = np.empty((sel.size, n_t, len(DYNAMIC_FEATURES)), dtype=np.float32)
+                # Read each DISTINCT parent cell ONCE, in SORTED (chunk-aligned)
+                # order, then broadcast back to the (possibly repeated) requested
+                # sites. Turns millions of scattered NFS/HDF5 reads into a few
+                # sequential chunk reads — bit-identical to a per-site isel.
+                uniq, inv = np.unique(sel, return_inverse=True)  # uniq sorted
                 for i, name in enumerate(DYNAMIC_FEATURES):
-                    arr[:, :, i] = ds[name].isel(site=sel).values.T
-            return y, arr, {s: k for k, (s, _) in enumerate(rows)}
+                    block = ds[name].isel(site=uniq).values  # (n_t, n_uniq)
+                    arr[:, :, i] = block.T[inv]
+            return y, arr, {s: k for k, s in enumerate(keys)}
 
         # Default is SEQUENTIAL on purpose: the bundled libhdf5/netCDF4 in the
         # cluster venv is not thread-safe — opening files concurrently (even
@@ -813,28 +857,88 @@ class RamLAIDataset(LAIDataset):
                 results = list(_ex.map(_read_year, feature_years))
         else:
             results = (_read_year(y) for y in feature_years)
-        for _res in results:
+        _t0 = time.time()
+        _nfy = len(feature_years)
+        for _done, _res in enumerate(results, 1):
             if _res is None:
+                if verbose:
+                    print(
+                        f"  [load] features {_done}/{_nfy}  (year missing)  "
+                        f"{time.time() - _t0:.0f}s",
+                        flush=True,
+                    )
                 continue
             y_res, arr, row_map = _res
             self._dyn[y_res] = arr
             self._row[y_res] = row_map
+            if verbose:
+                print(
+                    f"  [load] features {_done}/{_nfy}  year {y_res}  "
+                    f"({arr.shape[0]:,} sites)  {time.time() - _t0:.0f}s",
+                    flush=True,
+                )
 
         # ── Targets (LAI) and PFT → RAM (read by site_id from pixelset files) ──
         self._targ: Dict[int, Dict[str, np.ndarray]] = {}
         self._pft: Dict[int, Dict[str, np.ndarray]] = {}
-        for y in target_years:
+        _t0 = time.time()
+        _lai_rows = None
+        _pft_rows = None
+        for _j, y in enumerate(target_years, 1):
             tpath = os.path.join(target_dir, TARGETS_FNAME.format(year=y))
             if os.path.exists(tpath):
                 with xr.open_dataset(tpath) as dt:
+                    if _lai_rows is None:  # built once, reused
+                        _lai_rows = _site_row_index(dt["LAI"], site_list)
                     vals = _read_site_vectors(
-                        dt["LAI"], site_list, "dekad", dt["site_id"].values
+                        dt["LAI"], site_list, "dekad", rows=_lai_rows
                     )
                 self._targ[y] = {s: vals[i] for i, s in enumerate(site_list)}
             ppath = os.path.join(pft_dir, PFT_FNAME.format(year=y))
             if os.path.exists(ppath):
-                pv = _read_site_vectors(_open_pft_array(ppath), site_list, "pft")
+                pa = _open_pft_array(ppath)
+                if _pft_rows is None:  # built once, reused
+                    _pft_rows = _site_row_index(pa, site_list)
+                pv = _read_site_vectors(pa, site_list, "pft", rows=_pft_rows)
                 self._pft[y] = {s: pv[i] for i, s in enumerate(site_list)}
+            if verbose:
+                print(
+                    f"  [load] targets/pft {_j}/{len(target_years)}  year {y}  "
+                    f"{time.time() - _t0:.0f}s",
+                    flush=True,
+                )
+
+        # ── Daily LAI target (only when this instance trains on the 365-day
+        #    interpolated curve). "obs"/"off" reuse the dekadal self._targ above.
+        self._targ_daily: Dict[int, Dict[str, np.ndarray]] = {}
+        if self.daily_mode == "interp":
+            if not daily_target_dir:
+                raise ValueError("daily_mode='interp' requires daily_target_dir")
+            _daily_rows = None
+            for y in target_years:
+                dpath = os.path.join(daily_target_dir, LAI_DAILY_FNAME.format(year=y))
+                if os.path.exists(dpath):
+                    with xr.open_dataset(dpath) as dd:
+                        if _daily_rows is None:  # built once, reused
+                            _daily_rows = _site_row_index(dd["LAI"], site_list)
+                        vals = _read_site_vectors(
+                            dd["LAI"], site_list, "day", rows=_daily_rows
+                        )
+                    self._targ_daily[y] = {s: vals[i] for i, s in enumerate(site_list)}
+
+        # ── Daily climatology (anomaly + daily): interpolate each site's dekadal
+        #    climatology to 365 days so the daily/obs targets can be turned into
+        #    anomalies (subtracted in __getitem__). At the 36 dekad DOYs the daily
+        #    clim equals the dekadal clim, so the "obs" val target gets the correct
+        #    per-dekad anomaly. Built only for this dataset's sites with a clim.
+        self._anom_clim_daily: Dict[str, np.ndarray] = {}
+        if self.daily_mode != "off" and anomaly_clim is not None:
+            for s in site_list:
+                c36 = anomaly_clim.get(s)
+                if c36 is not None:
+                    self._anom_clim_daily[s] = _clim36_to_365(
+                        np.asarray(c36, dtype=np.float32)
+                    )
 
         # ── Pre-normalise ONCE (perf): apply log1p + z-score to the raw dynamic
         #    features and the PFT vectors in RAM a single time, and pre-build the
@@ -908,6 +1012,9 @@ class RamLAIDataset(LAIDataset):
 
         for year in target_years:
             if year not in self._targ or year not in self._dyn:
+                n_drop_missing_year += len(site_list)
+                continue
+            if self.daily_mode == "interp" and year not in self._targ_daily:
                 n_drop_missing_year += len(site_list)
                 continue
             if (year - 1) not in self._dyn:
@@ -1026,9 +1133,20 @@ class RamLAIDataset(LAIDataset):
             else self._assemble_feature_matrix(feat_full, pft_vec, year)
         )
 
-        target = self._targ[year][site_id].copy()
+        if self.daily_mode == "interp":
+            target = self._targ_daily[year][site_id].copy()  # (365,)
+        elif self.daily_mode == "obs":
+            # 365-day grid with the real dekad obs at their DOY, NaN elsewhere:
+            # the NaN-safe loss/metric then scores ONLY the true observation days.
+            target = np.full(N_DAYS_YEAR, np.nan, dtype=np.float32)
+            target[_OBS_POSITIONS_ARR] = self._targ[year][site_id]
+        else:
+            target = self._targ[year][site_id].copy()  # (36,)
         if self.anomaly_clim is not None:
-            target = target - self.anomaly_clim[site_id].astype(np.float32)
+            if self.daily_mode != "off":
+                target = target - self._anom_clim_daily[site_id]  # (365,) clim
+            else:
+                target = target - self.anomaly_clim[site_id].astype(np.float32)
         elif (
             self.normalize_lai
             and self.norm_stats is not None

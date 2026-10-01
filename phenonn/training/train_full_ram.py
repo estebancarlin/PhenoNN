@@ -33,6 +33,7 @@ import json
 import os
 import sys
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -50,8 +51,8 @@ from phenonn.data.lai_dataset import (
     load_selected_pixels,
     load_selected_pixel_splits,
 )
-from phenonn.utils.loss import make_loss_fn
-from phenonn.utils.model_factory import build_model, build_model_pft
+from phenonn.utils.evaluater import make_loss_fn
+from phenonn.utils.model_loader import build_model, build_model_pft
 
 
 from phenonn.utils.diagnostics import (
@@ -61,6 +62,27 @@ from phenonn.utils.diagnostics import (
 )
 from phenonn.utils.logger import Logger
 from phenonn.utils.utils import FileUtils
+
+
+@dataclass
+class SharedData:
+    """Everything a training run reuses across hyperparameter configs, loaded
+    from disk into RAM ONCE by load_shared(): the site pools, normalisation
+    tables, and the resident validation / training datasets. Identical for every
+    config whose subset / seed / years / n_sites_per_epoch / num_epochs match,
+    so run_sweep_inproc.py builds it once and hands it to each train_one_config."""
+
+    device: object
+    train_pool: list
+    val_sites: list
+    train_years: list
+    val_years: list
+    norm_stats: object
+    co2_lut: object
+    anomaly_clim: object
+    val_ds: object
+    val_loader: object
+    train_full: object
 
 
 _PRIVATE_WANDB_CONFIG = {
@@ -73,6 +95,7 @@ _PRIVATE_WANDB_CONFIG = {
     "stats_path",
     "co2_path",
     "clim_target_dir",
+    "daily_target_dir",
     "output_dir",
     "resume",
 }
@@ -138,7 +161,7 @@ def _cli_explicit_args():
     return explicit
 
 
-def parse_args():
+def parse_args(argv=None):
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -166,8 +189,8 @@ def parse_args():
     p.add_argument(
         "--selection_split",
         action="store_true",
-        help="Use split=0/1 train/validation labels in --selected_pixels. "
-        "Excludes split=2 test and split=3 buffer sites.",
+        help="Use split=0/1 train/validation labels in "
+        "--selected_pixels; exclude test and buffer sites.",
     )
     p.add_argument(
         "--parent_map",
@@ -185,15 +208,31 @@ def parse_args():
         default="",
         help="Optional norm_stats.json for log1p + z-scoring.",
     )
-    p.add_argument(
-        "--co2_path", default="", help="Optional CO2_annual.nc or text LUT."
-    )
+    p.add_argument("--co2_path", default="", help="Optional CO2_annual.nc or text LUT.")
     p.add_argument(
         "--no_normalize_lai",
         dest="normalize_lai",
         action="store_false",
         default=True,
         help="Skip LAI z-scoring (features still normalized).",
+    )
+    p.add_argument(
+        "--daily_lai",
+        action="store_true",
+        default=False,
+        help="Daily-LAI mode: the model outputs 365 days "
+        "(DailyWrapper, no every-10-days subselect) and trains on "
+        "the linear-interpolated daily curve (--daily_target_dir), "
+        "so the loss covers ALL days. Validation still scores ONLY "
+        "the real dekad observations (from --target_dir). "
+        "Incompatible with --anomaly_mode.",
+    )
+    p.add_argument(
+        "--daily_target_dir",
+        default="",
+        help="Folder of LAI_daily_{Y}.nc (365-day interpolated LAI, "
+        "from interpolate_lai_daily_linear.py). Required with "
+        "--daily_lai; used for the training target only.",
     )
     p.add_argument(
         "--threaded_feature_read",
@@ -231,6 +270,17 @@ def parse_args():
         default=0.1,
         help="Sentinel 100 → OVERLAP mode (train ∪ val drawn from "
         "the same pool, years must be disjoint).",
+    )
+    p.add_argument(
+        "--subset",
+        type=float,
+        default=1.0,
+        help="Keep only this FRACTION (0, 1] of the site pool "
+        "(applied to train AND val), sampled once with --seed "
+        "BEFORE the train/val split. Caps the sites ever loaded "
+        "into RAM at fraction×pool, independent of --num_epochs "
+        "(the per-epoch --n_sites_per_epoch sampling then draws "
+        "from this reduced pool). 1.0 = full pool.",
     )
 
     # ── Anomaly mode ──
@@ -283,7 +333,7 @@ def parse_args():
         "consistent. Changes the model → requires retraining.",
     )
     p.add_argument(
-        "--seq_length", type=int, default=720
+        "--seq_length", type=int, default=730
     )  # models: all (input window via dataset; PE/mask inside aelstm/bitransformer_v2/attnlstm, not lstm)
     p.add_argument(
         "--hidden_size", type=int, default=128
@@ -344,7 +394,7 @@ def parse_args():
 
     # ── Training ──
     p.add_argument("--batch_size", type=int, default=32)
-    p.add_argument("--num_epochs", type=int, default=30)
+    p.add_argument("--num_epochs", type=int, default=300)
     p.add_argument("--learning_rate", type=float, default=1e-3)
     p.add_argument("--weight_decay", type=float, default=1e-5)
     p.add_argument(
@@ -398,7 +448,7 @@ def parse_args():
         "--resume", default="", help="Path to last_model.pth from a previous run."
     )
     p.add_argument("--wandb", action="store_true")
-    p.add_argument("--wandb_project", default="phenonn-lai")
+    p.add_argument("--wandb_project", default="phenonn-global-lai")
     p.add_argument("--wandb_entity", default="")
     p.add_argument("--wandb_group", default="")
     p.add_argument("--wandb_tags", default="")
@@ -406,20 +456,31 @@ def parse_args():
         "--wandb_mode", choices=("online", "offline", "disabled"), default="online"
     )
 
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 # ── Train / validate loops (NaN-safe, same logic as main_big) ───────────────
 
 
 def train_one_epoch(
-    model, loader, criterion, optimizer, device, max_grad_norm, use_amp=False
+    model,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    max_grad_norm,
+    use_amp=False,
+    logger=None,
+    epoch=None,
 ):
     model.train()
     # Accumulate on-GPU to avoid a per-batch .item() sync; one sync at epoch end.
     total_weighted = torch.zeros((), device=device)
     total_valid = torch.zeros((), device=device)
-    for features, targets in loader:
+    n_batches = len(loader)
+    log_every = max(1, n_batches // 10)
+    t_ep = time.time()
+    for b, (features, targets) in enumerate(loader, 1):
         features = features.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
@@ -436,16 +497,24 @@ def train_one_epoch(
         n_valid = torch.isfinite(targets).sum()
         total_weighted += loss.detach().float() * n_valid.float()
         total_valid += n_valid
+        if logger is not None and (b % log_every == 0 or b == n_batches):
+            logger.info(
+                f"    epoch {epoch}: train batch {b}/{n_batches} "
+                f"({100 * b // n_batches}%)  {time.time() - t_ep:.0f}s"
+            )
     return (total_weighted / total_valid.clamp(min=1)).item()
 
 
 @torch.no_grad()
-def validate(model, loader, criterion, device, use_amp=False):
+def validate(model, loader, criterion, device, use_amp=False, logger=None, epoch=None):
     model.eval()
     total_weighted = torch.zeros((), device=device)
     total_valid = torch.zeros((), device=device)
     all_preds, all_targets = [], []
-    for features, targets in loader:
+    n_batches = len(loader)
+    log_every = max(1, n_batches // 10)
+    t_ep = time.time()
+    for b, (features, targets) in enumerate(loader, 1):
         features = features.to(device, non_blocking=True)
         targets = targets.to(device, non_blocking=True)
         with torch.autocast(
@@ -458,6 +527,11 @@ def validate(model, loader, criterion, device, use_amp=False):
         total_valid += n_valid
         all_preds.append(preds.reshape(-1).float().cpu())
         all_targets.append(targets.reshape(-1).float().cpu())
+        if logger is not None and (b % log_every == 0 or b == n_batches):
+            logger.info(
+                f"    epoch {epoch}: val batch {b}/{n_batches} "
+                f"({100 * b // n_batches}%)  {time.time() - t_ep:.0f}s"
+            )
     avg_loss = (total_weighted / total_valid.clamp(min=1)).item()
     p = torch.cat(all_preds)
     t = torch.cat(all_targets)
@@ -491,8 +565,8 @@ def _build_pools(args, all_years, logger) -> tuple:
             raise ValueError("--selection_split requires --selected_pixels.")
         train_pool, val_pool = load_selected_pixel_splits(args.selected_pixels)
         logger.info(
-            f"Selection split : train={len(train_pool):,} val={len(val_pool):,} "
-            "(test/buffer excluded)"
+            f"Selection split : train={len(train_pool):,} "
+            f"val={len(val_pool):,} (test/buffer excluded)"
         )
         return train_pool, val_pool
     if args.selected_pixels:
@@ -524,6 +598,25 @@ def _build_pools(args, all_years, logger) -> tuple:
         raise ValueError(
             "Provide either --selected_pixels (recommended for pixelset "
             "pipeline) or --valid_dir."
+        )
+
+    # Optional pool subsetting: keep a fixed random fraction of the pool BEFORE
+    # the train/val split, so BOTH pools shrink and the working-set (union of
+    # per-epoch samples) can never exceed fraction×pool — decoupling resident
+    # RAM from --num_epochs. Deterministic (own RandomState(seed)) so the choice
+    # is stable across runs/--resume; a separate instance leaves the split RNG
+    # below untouched.
+    if not (0.0 < args.subset <= 1.0):
+        raise ValueError(f"--subset must be in (0, 1], got {args.subset}")
+    if args.subset < 1.0:
+        n_keep = max(1, int(len(all_sites) * args.subset))
+        sub_rng = np.random.RandomState(args.seed)
+        all_sites = sorted(
+            sub_rng.choice(all_sites, size=n_keep, replace=False).tolist()
+        )
+        logger.info(
+            f"Subset          : {n_keep:,} sites kept "
+            f"({args.subset:.3g}× pool) for train+val"
         )
 
     rng = np.random.RandomState(args.seed)
@@ -613,16 +706,34 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device          : {device}")
-    data_loader_workers = args.num_workers
-    if os.name == "nt" and data_loader_workers:
-        # Windows uses spawn, which would serialize the entire RAM-resident
-        # dataset into each worker and can exceed its IPC/pickle limits.
-        logger.warning("Windows RAM mode forces DataLoader workers to 0.")
-        data_loader_workers = 0
     # Fixed input shapes (seq_length, batch) → let cuDNN pick the best kernels.
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True  # TF32 matmuls (Ampere+)
     torch.backends.cudnn.allow_tf32 = True
+
+    shared = load_shared(args, logger, device, resume_ckpt)
+    train_one_config(args, shared, logger, resume_ckpt)
+
+
+def load_shared(args, logger, device, resume_ckpt=None):
+    """Load into RAM ONCE everything a run reuses across hyperparameter configs.
+
+    Parses the year ranges, loads the norm stats / CO2 LUT / 0.05°→0.1° parent
+    map, builds the site pools and the working-set, computes the anomaly
+    climatology, and loads the validation set and the training working-set into
+    RAM. Returns a SharedData. For a sweep whose subset / seed / years /
+    n_sites_per_epoch / num_epochs are fixed, this is identical for every config
+    — so run_sweep_inproc.py calls it once and reuses the result.
+    """
+    if getattr(args, "daily_lai", False) and not args.daily_target_dir:
+        raise SystemExit(
+            "--daily_lai requires --daily_target_dir " "(folder of LAI_daily_{Y}.nc)."
+        )
+    if getattr(args, "daily_lai", False) and args.type == "transformer_dec":
+        raise ValueError("--daily_lai is not supported by transformer_dec.")
+    if os.name == "nt" and args.num_workers:
+        logger.warning("Windows RAM mode forces DataLoader workers to 0.")
+        args.num_workers = 0
 
     train_years = parse_year_list(args.train_years)
     val_years = parse_year_list(args.val_years)
@@ -639,7 +750,6 @@ def main():
             raise FileNotFoundError(args.stats_path)
         with open(args.stats_path) as f:
             norm_stats = json.load(f)
-        # The selected-site workflow stores feature moments under `statistics`.
         norm_stats = norm_stats.get("statistics", norm_stats)
         logger.info(
             f"Norm stats      : {args.stats_path}  " f"({len(norm_stats)} entries)"
@@ -680,6 +790,11 @@ def main():
         f"seq_length {args.seq_length}"
     )
     logger.info(f"LAI target norm : {'ON' if args.normalize_lai else 'OFF'}")
+    if getattr(args, "daily_lai", False):
+        logger.info(
+            f"Daily LAI mode  : ON — train on 365-day curve "
+            f"({args.daily_target_dir}); val scores real dekads only"
+        )
     logger.info(f"Anomaly mode    : {args.anomaly_mode}")
     logger.info(
         f"PFT mixing      : {args.pft_mixing}"
@@ -753,6 +868,7 @@ def main():
         verbose=True,
         threaded_read=args.threaded_feature_read,
         parent_map=parent_map,
+        daily_mode=("obs" if getattr(args, "daily_lai", False) else "off"),
     )
     if len(val_ds) == 0:
         raise RuntimeError("Validation dataset is empty. Check inputs.")
@@ -760,7 +876,7 @@ def main():
         val_ds,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=data_loader_workers,
+        num_workers=args.num_workers,
         pin_memory=True,
     )
     logger.info(f"Val samples     : {len(val_ds):,}")
@@ -783,10 +899,48 @@ def main():
         verbose=True,
         threaded_read=args.threaded_feature_read,
         parent_map=parent_map,
+        daily_mode=("interp" if getattr(args, "daily_lai", False) else "off"),
+        daily_target_dir=getattr(args, "daily_target_dir", ""),
     )
     if len(train_full) == 0:
         raise RuntimeError("Training dataset is empty. Check inputs.")
     logger.info(f"Train samples   : {len(train_full):,} resident in RAM")
+
+    return SharedData(
+        device=device,
+        train_pool=train_pool,
+        val_sites=val_sites,
+        train_years=train_years,
+        val_years=val_years,
+        norm_stats=norm_stats,
+        co2_lut=co2_lut,
+        anomaly_clim=anomaly_clim,
+        val_ds=val_ds,
+        val_loader=val_loader,
+        train_full=train_full,
+    )
+
+
+def train_one_config(args, shared, logger, resume_ckpt=None):
+    """Build the model/optimizer for ONE hyperparameter config and train it on
+    the already-resident SharedData, writing its own checkpoints and plots under
+    args.output_dir/args.experiment. Reuses load_shared()'s RAM datasets, so a
+    sweep pays the disk load only once.
+    """
+    device = shared.device
+    train_pool = shared.train_pool
+    val_sites = shared.val_sites
+    train_years = shared.train_years
+    val_years = shared.val_years
+    norm_stats = shared.norm_stats
+    co2_lut = shared.co2_lut
+    anomaly_clim = shared.anomaly_clim
+    val_loader = shared.val_loader
+    train_full = shared.train_full
+
+    exp_dir = os.path.join(args.output_dir, args.experiment)
+    ckpt_dir = os.path.join(exp_dir, "checkpoints")
+    FileUtils.makedir(ckpt_dir)
 
     # ── Model ──
     if args.pft_mixing:
@@ -794,7 +948,11 @@ def main():
         wrapper_label = "PFTMixingWrapper"
     else:
         model = build_model(args).to(device)
-        wrapper_label = "Every10DaysWrapper"
+        wrapper_label = (
+            "DailyWrapper"
+            if getattr(args, "daily_lai", False)
+            else "Every10DaysWrapper"
+        )
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(
         f"Model           : {args.type} + {wrapper_label}  "
@@ -890,7 +1048,7 @@ def main():
             Subset(train_full, indices),
             batch_size=args.batch_size,
             shuffle=True,
-            num_workers=data_loader_workers,
+            num_workers=args.num_workers,
             pin_memory=True,
             drop_last=False,
         )
@@ -904,9 +1062,17 @@ def main():
             device,
             args.max_grad_norm,
             use_amp=args.amp,
+            logger=logger,
+            epoch=epoch,
         )
         val_loss, val_rmse, val_r2 = validate(
-            run_model, val_loader, criterion, device, use_amp=args.amp
+            run_model,
+            val_loader,
+            criterion,
+            device,
+            use_amp=args.amp,
+            logger=logger,
+            epoch=epoch,
         )
         scheduler.step(val_loss)
 
@@ -936,7 +1102,7 @@ def main():
                     "validation/loss": val_loss,
                     "validation/rmse": val_rmse,
                     "validation/r2": val_r2,
-                    "validation/samples": len(val_ds),
+                    "validation/samples": len(shared.val_ds),
                     "optimizer/learning_rate": lr,
                     "runtime/epoch_seconds": dt,
                 }
@@ -991,7 +1157,7 @@ def main():
         if is_best_rmse:
             torch.save(snapshot, os.path.join(ckpt_dir, "best_rmse_model.pth"))
             logger.success(
-                f"  ✓ Best RMSE checkpoint saved " f"(val_rmse={val_rmse:.5f})"
+                f"  Best RMSE checkpoint saved " f"(val_rmse={val_rmse:.5f})"
             )
 
         if epochs_no_improve >= args.patience:

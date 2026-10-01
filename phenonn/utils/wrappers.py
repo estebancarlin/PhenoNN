@@ -209,6 +209,25 @@ class Every10DaysWrapper(nn.Module):
         return last_year[:, :, self.obs_positions]  # (B, C_out, 36)
 
 
+class DailyWrapper(nn.Module):
+    """
+    Daily twin of Every10DaysWrapper: returns the model output at EVERY day of
+    the last year (365) instead of only the 36 dekad positions.
+
+    Input  : (B, C_in, L)  with L ≥ 365
+    Output : (B, C_out, 365)
+
+    Used when training on a daily-interpolated LAI target (loss on all 365 days).
+    """
+
+    def __init__(self, base_model: nn.Module) -> None:
+        super().__init__()
+        self.base_model = base_model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.base_model(x)[:, :, -365:]  # (B, C_out, 365)
+
+
 """
 PFT-aware output wrappers for PhenoNN models.
 
@@ -255,6 +274,7 @@ class PFTMixingWrapper(nn.Module):
         lai_normalized: bool = True,
         meteo_only: bool = False,
         nonneg: bool = False,
+        daily: bool = False,
     ) -> None:
         super().__init__()
         self.base_model = base_model
@@ -262,6 +282,9 @@ class PFTMixingWrapper(nn.Module):
         self.n_pft = n_pft
         self.renormalize = renormalize
         self.sparse_output = sparse_output
+        # When True, the mixed LAI is returned at EVERY day of the last year
+        # (B, 1, 365) instead of the 36 dekad positions — daily-target training.
+        self.daily = daily
         self.zero_pft1_lai = zero_pft1_lai
         # When True the base model was built to see only the meteo/cyclic/co2
         # channels (0 : pft_start); its pure-LAI outputs L_k then depend on
@@ -324,6 +347,8 @@ class PFTMixingWrapper(nn.Module):
             out = self.nonneg_z0 + F.softplus(out - self.nonneg_z0)
         if self.sparse_output:
             lai_pure = out
+        elif self.daily:
+            lai_pure = out[:, :, -365:]  # (B, 15, 365)
         else:
             last_year = out[:, :, -365:]
             lai_pure = last_year[:, :, self.obs_positions]  # (B, 15, 36)

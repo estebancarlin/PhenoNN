@@ -38,21 +38,32 @@ METEO_BASE: List[str] = [
     "VPD_mean",
     "Rn_tot",
     "PET",
-    "SMI",
 ]
 
+# Thermal phenology features (ORCHIDEE v4.2 onset/gate proxies), all computed
+# from Tmean by phenonn.data_creation.add_pheno_thermal and stored in the SAME
+# ERA5_daily_pixelset_{Y}.nc. Enabled via add_pheno_features above.
 DERIVED_FEATURES: List[str] = [
     "gdd_0",
     "gdd_5",
     "gdd_10",
-    "cdd",
-    "ncd",
+    "ncd_temp",
+    "ncd_bor",
+    "ngd",
     "botta_threshold",
     "botta_forcing",
+    "t_rising",
+    "t_falling",
 ]
 
-DYNAMIC_FEATURES: List[str] = METEO_BASE + (
-    DERIVED_FEATURES if add_pheno_features else []
+# Engineered daily features appended to the ERA5 pixelset after the base build,
+# stored in the SAME ERA5_daily_pixelset_{Y}.nc (so read by name like METEO_BASE):
+#   daylength — phenonn.data_creation.add_daylength           (photoperiod, hours)
+#   SMI       — phenonn.data_creation.add_soil_moisture_proxy (30-day precip proxy)
+AUGMENTED_FEATURES: List[str] = ["daylength", "SMI"]
+
+DYNAMIC_FEATURES: List[str] = (
+    METEO_BASE + AUGMENTED_FEATURES + (DERIVED_FEATURES if add_pheno_features else [])
 )
 
 CYCLIC_FEATURES: List[str] = ["doy_sin", "doy_cos"] if add_cyclic_features else []
@@ -72,17 +83,22 @@ PFT_START = len(DYNAMIC_FEATURES) + len(CYCLIC_FEATURES) + len(CO2_FEATURES)
 # choices of LaiNN/dataset_target_feature.py adapted to the ERA5 names.
 LOG_TRANSFORM_FEATURES = {
     "tp_sum",
+    "SMI",  # 30-day precip-weighted proxy: ≥0 and right-skewed like tp_sum
     "ssrd_sum",
     "strd_sum",
     "VPD_max",
     "VPD_mean",
-    "SMI",
     "gdd_0",
     "gdd_5",
-    "gdd_10",
-    "cdd",
-    "ncd",
+    "gdd_10",  # ≥0 accumulators, right-skewed
+    "ncd_temp",
+    "ncd_bor",
+    "ngd",
+    "botta_threshold",
 }
+# NOTE: daylength is deliberately NOT log-transformed — bounded to 0–24 h and
+# seasonal (not heavy-tailed). Likewise the SIGNED thermal features botta_forcing,
+# t_rising and t_falling are z-scored only (log1p is invalid on negatives).
 
 
 # ── Dekadal calendar ─────────────────────────────────────────────────────────

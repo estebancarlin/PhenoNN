@@ -108,6 +108,6 @@ class PerDayLinearBaseline(nn.Module):
         (batch, 1)
         """
         # Permute to (B, L, C), take last day, apply linear
-        x = x.permute(0, 2, 1)  # (B, L, C)
-        last_day = x[:, -1, :]  # (B, C)
+        x = x.permute(0, 2, 1)   # (B, L, C)
+        last_day = x[:, -1, :]   # (B, C)
         return self.linear(last_day)
