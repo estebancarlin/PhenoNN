@@ -190,3 +190,77 @@ and EOS from a strictly causal PhenoNN trajectory and retain ORCHIDEE carbon
 allocation. Directly overwriting LAI would violate allocation, carbon, and
 nitrogen mass-balance constraints. Evaluate any coupling against independent
 carbon, water, and energy flux observations, not only GEOV2 LAI.
+
+## Discussion: Spatial Robustness, Anomalies, and ORCHIDEE Coupling (2026-10-05)
+
+### Comparing spatial robustness
+
+The upstream temporal result and the local spatial result answer different
+questions. A fair comparison requires both approaches to use the same data
+schema, target mask, normalization, seeds, training budget, and checkpoint
+selection rule.
+
+Evaluate both models using at least four blocked protocols:
+
+1. Same sites and future years: temporal extrapolation at known sites.
+2. Unseen sites and matched years: geographic transfer.
+3. Unseen sites and future years: spatiotemporal generalization.
+4. Held-out geographic or climate/PFT regions: out-of-distribution transfer.
+
+Random pixel splits should be avoided where neighboring pixels are correlated;
+spatial clusters, tiles, or leave-region-out splits are preferable.
+
+Report physical-unit RMSE and MAE, site-centred R2, per-site-year metrics,
+bias, amplitude error, and errors around SOS, peak LAI, and EOS. Stratify the
+results by climate, PFT composition, aridity, and latitude. A climatology
+baseline must be included in every protocol.
+
+### Anomaly comparison
+
+Anomalies should be evaluated explicitly as:
+
+    anomaly = observed LAI - climatological LAI
+
+The climatology must be computed from training years only. For temporal splits,
+this can be a site-by-dekad climatology. For unseen-site spatial splits, a
+site-specific climatology is not operationally available; use a climatology
+estimated from training sites using regional, climate, latitude, and PFT
+information. A climatology calculated from held-out observations may be
+reported as an oracle diagnostic, but not as a deployable baseline.
+
+Report anomaly RMSE, MAE, correlation, anomaly R2, per-site-year anomaly R2,
+predicted-to-observed anomaly variance ratio, and skill relative to a
+zero-anomaly baseline. Absolute-LAI models can be converted to anomalies by
+subtracting the same training climatology. Anomaly models can be converted back
+to LAI by adding it. Both must be evaluated on the same original dekadal
+observations; interpolated daily targets must not be treated as independent
+observations.
+
+The upstream anomaly result (`R2=0.0780`, RMSE `0.2183`) compared with a
+zero-anomaly climatology (`RMSE=0.2274`) indicates modest interannual skill.
+Therefore, the upstream raw-LAI advantage may primarily reflect seasonal
+climatology reconstruction rather than strong prediction of year-to-year
+departures.
+
+### Implications for ORCHIDEE
+
+The intended ORCHIDEE use changes the model-selection priorities. For offline
+reconstruction at known sites, same-site temporal performance is useful. For an
+ESM phenology component, the model must also transfer across locations, remain
+causal, respond plausibly to weather and CO2 perturbations, and operate outside
+the historical climate envelope.
+
+The current Attention-LSTM's centred convolution can read `t+1`. This may help
+offline validation but is future-information leakage for an online coupling.
+The coupled model should therefore be strictly causal, or its complete-season
+forecasting use case must be explicitly justified.
+
+Raw-LAI RMSE alone is insufficient for selecting an ORCHIDEE replacement.
+Perturbation tests for drought, heat, cold, precipitation, and CO2 should be
+combined with checks of PFT consistency, extrapolation behavior, and carbon,
+water, and energy fluxes.
+
+Directly overwriting ORCHIDEE LAI risks inconsistency with carbon allocation,
+leaf nitrogen, photosynthesis, respiration, and canopy water fluxes. A safer
+coupling path is to use PhenoNN to provide SOS, EOS, or phenology transition
+rates while retaining ORCHIDEE's carbon allocation and LAI state evolution.
