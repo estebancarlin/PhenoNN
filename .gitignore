@@ -173,6 +173,8 @@ checkpoints/*
 
 runs/*
 !runs/.gitkeep
+# Local HPC symlink itself (runs/* above only matches dir contents)
+/runs
 
 logs/*
 !logs/.gitkeep
@@ -193,3 +195,6 @@ data/*
 gcc_pred_*
 
 uv.lock
+
+# Local-only work planning doc (private, never commit upstream)
+/PhenoNN Cleanup & Packaging — 6-Week Work Plan.md
