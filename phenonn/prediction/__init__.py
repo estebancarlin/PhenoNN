@@ -7,17 +7,34 @@
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 """
-PhenoNN Prediction Module
+PhenoNN prediction package.
 
-Provides functions for running predictions with trained models:
-- Single-year prediction (per-site CSV format)
-- Flat CSV prediction (features/targets format)
+Public API
+----------
+- :func:`main`            — CLI entry point; invoked as
+                             ``python -m phenonn.prediction.predict`` or via
+                             ``phenonn predict``.
+- :func:`parse_year_spec` — parse ``"2010-2019"`` / ``"2010,2015"`` / ``"all"``
+                             into a list of years.
+- :func:`_resolve_sites`  — resolve the ``--predict_sites`` / ``--sites`` /
+                             ``--selected_pixels`` CLI flags against a checkpoint
+                             to a concrete list of site IDs. Public-facing
+                             despite the leading underscore, because the
+                             analysis modules (perturbation, pft_linearity)
+                             reuse it.
+
+The legacy flat-CSV predictor (``predict_flat``) has been moved to
+``legacy/prediction/``.
 """
 
-from .predict import run_prediction
-from .predict_flat import run_prediction_flat
+from .predict import (
+    main,
+    parse_year_spec,
+    _resolve_sites,
+)
 
 __all__ = [
-    "run_prediction",
-    "run_prediction_flat",
+    "main",
+    "parse_year_spec",
+    "_resolve_sites",
 ]
