@@ -28,30 +28,32 @@ __email__ = "krdaneh@ipsl.fr"
 __license__ = "CC BY-NC-SA 4.0"
 
 # Core exports
-from .data.dataset import PhenoCamDataset, split_sites_by_fraction, extract_pft_and_site
-from .data.dataset_flat import (
+# Data exports (kept surface only)
+from .data import (
     LAIDataset,
-    get_site_ids,
-    split_sites_by_fraction as split_sites_flat,
+    RamLAIDataset,
 )
-from .data.feature_engineering import add_derived_features
+
 
 # Model exports
 from phenonn.models.rnn import RNN_LSTM, RNN_GRU
-from phenonn.models.transformer import EncoderTorch
-from phenonn.models.transformerbis import (
-    CombinedModel,
-    BiTransformer,
+from phenonn.models.aelstm import AELSTM
+from phenonn.models.bitransformer import BiTransformerV2
+from phenonn.models.transformer import (
+    EncoderTorch,
+    CausalSparseTransformer,
+    SinusoidalPositionalEncoding,
 )
 
-# Training exports
-from .training.train import run_training
-from .training.train_flat import run_training_flat
-from .training.train_big import run_training_big
+# Training exports (kept surface only)
+from .training.train_full_ram import (
+    main as train,
+    load_shared,
+    train_one_config,
+)
 
-# Prediction exports
-from .prediction.predict import run_prediction
-from .prediction.predict_flat import run_prediction_flat
+# Prediction exports (kept surface only)
+from .prediction.predict import main as predict
 
 # Set up device
 if "CUDA_VISIBLE_DEVICES" in os.environ:
@@ -61,35 +63,28 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 __all__ = [
     # Data
-    "PhenoCamDataset",
     "LAIDataset",
-    "compute_norm_stats",
-    "load_norm_stats",
-    "add_derived_features",
-    "split_sites_by_fraction",
-    "split_sites_flat",
-    "get_site_ids",
-    "extract_pft_and_site",
+    "RamLAIDataset",
     # Models
     "RNN_LSTM",
     "RNN_GRU",
+    "AELSTM",
+    "BiTransformerV2",
     "EncoderTorch",
-    "CombinedModel",
-    "BiTransformer",
+    "CausalSparseTransformer",
+    "SinusoidalPositionalEncoding",
     # Training
-    "run_training",
-    "run_training_flat",
-    "run_training_big",
+    "train",
+    "load_shared",
+    "train_one_config",
     # Prediction
-    "run_prediction",
-    "run_prediction_flat",
+    "predict",
     # Version
     "__version__",
     "get_version",
     "get_versions",
     "DEVICE",
 ]
-
 
 # Package metadata
 __description__ = "LSTM-based phenology prediction from climate data"
@@ -114,7 +109,7 @@ def _print_version_info():
     print(f"PhenoNN version {__version__}")
     print(f"Author: {__author__}")
     print(f"Repository: {__url__}")
-    print("Type 'help(phenonn)' for more information.")
+    print("Type 'phenonn --help' for more information.")
 
 
 # Uncomment to show version info in interactive mode
