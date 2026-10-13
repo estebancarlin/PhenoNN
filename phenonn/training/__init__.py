@@ -7,19 +7,51 @@
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 """
-PhenoNN Training Module
+PhenoNN training package.
 
-Provides training functions for both per-site CSV and flat CSV formats.
+Public API
+----------
+The training pipeline is exposed as three composable functions plus a
+container, so that both the standalone CLI and the in-process sweeps
+(``run_ablate_inproc``, ``run_ablate_combo_models``, ``run_year_split``)
+can share the same RAM-resident datasets.
+
+- :class:`SharedData`          — container holding the resident datasets and
+                                  pools for one working-set.
+- :func:`load_shared`          — load the working-set into RAM once.
+- :func:`train_one_config`     — train one hyperparameter config on a
+                                  ``SharedData``.
+- :func:`main`                 — CLI entry point;
+                                  ``python -m phenonn.training.train_full_ram``.
+- :func:`parse_args`           — CLI parser (accepts a custom ``argv``).
+- :func:`parse_year_list`      — parse ``"1992-2010"`` / ``"1992,2000"`` into a
+                                  list of years.
+- :func:`train_one_epoch`      — inner training loop (used by the composite
+                                  train functions).
+- :func:`validate`             — inner validation loop.
+
+The legacy CSV trainers (``run_training``, ``run_training_flat``,
+``run_training_big``) have been moved to ``legacy/training/``.
 """
 
-from .train import run_training
-from .train_flat import run_training_flat
-from .train_big import run_training_big
-
+from .train_full_ram import (
+    SharedData,
+    load_shared,
+    train_one_config,
+    main,
+    parse_args,
+    parse_year_list,
+    train_one_epoch,
+    validate,
+)
 
 __all__ = [
-    # CLI entry points
-    "run_training",
-    "run_training_flat",
-    "run_training_big",
+    "SharedData",
+    "load_shared",
+    "train_one_config",
+    "main",
+    "parse_args",
+    "parse_year_list",
+    "train_one_epoch",
+    "validate",
 ]
