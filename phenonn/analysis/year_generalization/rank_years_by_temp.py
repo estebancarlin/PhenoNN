@@ -26,13 +26,17 @@ from phenonn.utils.config import FEATURES_FNAME
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--features_dir", required=True,
-                   help="Folder of ERA5_daily_pixelset_{Y}.nc.")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--features_dir", required=True, help="Folder of ERA5_daily_pixelset_{Y}.nc."
+    )
     p.add_argument("--year_start", type=int, required=True)
-    p.add_argument("--year_end",   type=int, required=True)
-    p.add_argument("--var", default="Tmean", help="Temperature variable (default Tmean).")
+    p.add_argument("--year_end", type=int, required=True)
+    p.add_argument(
+        "--var", default="Tmean", help="Temperature variable (default Tmean)."
+    )
     p.add_argument("--out", default="year_temp_rank.json")
     args = p.parse_args()
 
@@ -46,10 +50,12 @@ def main():
             means[y] = float(np.asarray(ds[args.var].mean().values))
         print(f"  ✓ {y}  mean {args.var} = {means[y]:.3f}")
 
-    order = sorted(means, key=lambda yr: means[yr])          # cold → hot
-    out = {"years_cold_to_hot": order,
-           "mean_tmean": {str(k): v for k, v in means.items()},
-           "var": args.var}
+    order = sorted(means, key=lambda yr: means[yr])  # cold → hot
+    out = {
+        "years_cold_to_hot": order,
+        "mean_tmean": {str(k): v for k, v in means.items()},
+        "var": args.var,
+    }
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2)
 

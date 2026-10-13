@@ -21,11 +21,16 @@ import argparse
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-from phenonn.analysis.feature_ablation._common import NON_PFT_FEATURES, BASELINE_EXP, exp_name
+from phenonn.analysis.feature_ablation._common import (
+    NON_PFT_FEATURES,
+    BASELINE_EXP,
+    exp_name,
+)
 
 
 def _read_metrics(runs_dir: str, experiment: str):
@@ -35,20 +40,27 @@ def _read_metrics(runs_dir: str, experiment: str):
         return None
     snap = torch.load(ckpt, map_location="cpu", weights_only=False)
     return {
-        "val_r2":     snap.get("val_r2"),
-        "val_rmse":   snap.get("val_rmse"),
-        "val_loss":   snap.get("val_loss"),
+        "val_r2": snap.get("val_r2"),
+        "val_rmse": snap.get("val_rmse"),
+        "val_loss": snap.get("val_loss"),
         "best_epoch": snap.get("best_epoch"),
     }
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--runs_dir", default="runs",
-                    help="Folder holding <experiment>/checkpoints/best_model.pth.")
-    ap.add_argument("--output", default="study/feature_ablation/feature_ablation.png",
-                    help="Bar-plot path; the CSV is written alongside it.")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--runs_dir",
+        default="runs",
+        help="Folder holding <experiment>/checkpoints/best_model.pth.",
+    )
+    ap.add_argument(
+        "--output",
+        default="study/feature_ablation/feature_ablation.png",
+        help="Bar-plot path; the CSV is written alongside it.",
+    )
     args = ap.parse_args()
 
     base = _read_metrics(args.runs_dir, BASELINE_EXP)
@@ -68,13 +80,15 @@ def main():
             continue
         r2 = float(m["val_r2"])
         rmse = float(m["val_rmse"])
-        rows.append({
-            "feature":    feat,
-            "val_r2":     r2,
-            "delta_r2":   r2 - r2_base,
-            "val_rmse":   rmse,
-            "delta_rmse": rmse - rmse_base,
-        })
+        rows.append(
+            {
+                "feature": feat,
+                "val_r2": r2,
+                "delta_r2": r2 - r2_base,
+                "val_rmse": rmse,
+                "delta_rmse": rmse - rmse_base,
+            }
+        )
 
     if not rows:
         raise SystemExit("No ablation runs found. Submit the jobs first.")
@@ -86,8 +100,10 @@ def main():
     print(f"{'feature':<14}{'val_R2':>9}{'dR2':>10}{'dRMSE':>10}")
     print("-" * 43)
     for r in rows:
-        print(f"{r['feature']:<14}{r['val_r2']:>9.4f}"
-              f"{r['delta_r2']:>10.4f}{r['delta_rmse']:>10.4f}")
+        print(
+            f"{r['feature']:<14}{r['val_r2']:>9.4f}"
+            f"{r['delta_r2']:>10.4f}{r['delta_rmse']:>10.4f}"
+        )
 
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,11 +112,13 @@ def main():
         f.write("feature,val_r2,delta_r2,val_rmse,delta_rmse\n")
         f.write(f"{BASELINE_EXP},{r2_base},0.0,{rmse_base},0.0\n")
         for r in rows:
-            f.write(f"{r['feature']},{r['val_r2']},{r['delta_r2']},"
-                    f"{r['val_rmse']},{r['delta_rmse']}\n")
+            f.write(
+                f"{r['feature']},{r['val_r2']},{r['delta_r2']},"
+                f"{r['val_rmse']},{r['delta_rmse']}\n"
+            )
 
     feats = [r["feature"] for r in rows]
-    importance = [-r["delta_r2"] for r in rows]      # positive = feature matters
+    importance = [-r["delta_r2"] for r in rows]  # positive = feature matters
     plt.figure(figsize=(8, 0.45 * len(feats) + 1.6))
     colors = ["#c0392b" if v >= 0 else "#7f8c8d" for v in importance]
     plt.barh(range(len(feats)), importance, color=colors)

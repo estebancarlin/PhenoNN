@@ -17,7 +17,9 @@ Usage
 import argparse
 
 from phenonn.analysis.perturbation._perturb import (
-    ChannelPerturbation, Perturbation, SEASONS,
+    ChannelPerturbation,
+    Perturbation,
+    SEASONS,
 )
 from phenonn.analysis.perturbation import run_perturbation as R
 
@@ -26,22 +28,36 @@ PRECIP_CHANNELS = ["tp_sum", "SMI"]
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     R.add_common_args(p)
-    p.add_argument("--precip_factor", type=float, default=0.5,
-                   help="Multiply precip channels by this (<1 = drier). Default 0.5.")
-    p.add_argument("--season", default="growing", choices=list(SEASONS),
-                   help="DOY window of the deficit (default: growing = Apr–Oct).")
+    p.add_argument(
+        "--precip_factor",
+        type=float,
+        default=0.5,
+        help="Multiply precip channels by this (<1 = drier). Default 0.5.",
+    )
+    p.add_argument(
+        "--season",
+        default="growing",
+        choices=list(SEASONS),
+        help="DOY window of the deficit (default: growing = Apr–Oct).",
+    )
     args = p.parse_args()
 
     def make(norm_stats):
-        chans = [ChannelPerturbation(f, mul=args.precip_factor)
-                 for f in PRECIP_CHANNELS]
+        chans = [
+            ChannelPerturbation(f, mul=args.precip_factor) for f in PRECIP_CHANNELS
+        ]
         return Perturbation(chans, norm_stats, season_ranges=SEASONS[args.season])
 
-    R.run(args, make, SCENARIO,
-          f"Precipitation ×{args.precip_factor:g} (tp_sum, SMI) over {args.season}.")
+    R.run(
+        args,
+        make,
+        SCENARIO,
+        f"Precipitation ×{args.precip_factor:g} (tp_sum, SMI) over {args.season}.",
+    )
 
 
 if __name__ == "__main__":

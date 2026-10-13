@@ -12,6 +12,7 @@ import os
 import tempfile
 import shutil
 from phenonn.utils.logger import Logger
+import sys
 
 
 class TestLogger(unittest.TestCase):
@@ -643,3 +644,22 @@ class TestLogger(unittest.TestCase):
             self.test_logger.info(
                 f"Test teardown - removed temp directory: {self.temp_dir}"
             )
+
+
+def run_tests():
+    """Run all Logger tests."""
+    loader = unittest.TestLoader()
+    suite = unittest.TestSuite()
+
+    # Add test class
+    suite.addTests(loader.loadTestsFromTestCase(TestLogger))
+
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+
+    return result.wasSuccessful()
+
+
+if __name__ == "__main__":
+    success = run_tests()
+    sys.exit(0 if success else 1)

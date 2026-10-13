@@ -23,12 +23,6 @@ import mpltex
 import matplotlib.gridspec as gridspec
 import matplotlib.ticker as ticker
 import pandas as pd
-from phenonn.utils.config import (
-    DYNAMIC_FEATURES,
-    CYCLIC_FEATURES,
-    PFT_COLS,
-    LOG_TRANSFORM_FEATURES,
-)
 # `add_derived_features` is now an xarray helper. The few diagnostic plots
 # that need it import it lazily inside the function body to keep this
 # module light when only basic plots are needed.
@@ -627,9 +621,9 @@ def plot_gcc_curves_all(
     fig, axes = plt.subplots(
         rows,
         cols,
-        figsize=(4 * cols, 3.4 * rows),   # taller rows: room for multi-line titles
+        figsize=(4 * cols, 3.4 * rows),  # taller rows: room for multi-line titles
         squeeze=False,
-        constrained_layout=True,          # auto-space titles/suptitle (no overlap)
+        constrained_layout=True,  # auto-space titles/suptitle (no overlap)
     )
 
     fig.suptitle(f"LAI predicted vs observed — {n_sites} sites (sorted by R²)")
@@ -655,8 +649,11 @@ def plot_gcc_curves_all(
 
             line_obs = ax.plot(doys, ydf[obs_col].values, **next(linestyles))
             line_pred = ax.plot(doys, ydf[pred_col].values, **next(linestyles))
-            line_extra = (ax.plot(doys, ydf[extra_col].values, **next(linestyles))
-                          if extra_col is not None else None)
+            line_extra = (
+                ax.plot(doys, ydf[extra_col].values, **next(linestyles))
+                if extra_col is not None
+                else None
+            )
 
             # Collect legend handles and labels from the first site only
             if idx == 0:
@@ -676,10 +673,16 @@ def plot_gcc_curves_all(
         if pft_by_site is not None and site_name in pft_by_site:
             frac = pft_by_site[site_name]
             items = sorted(
-                ((pft_names[i] if pft_names and i < len(pft_names) else f"PFT{i+1}",
-                  float(frac[i]))
-                 for i in range(len(frac))
-                 if np.isfinite(frac[i]) and frac[i] >= pft_min_frac),
+                (
+                    (
+                        pft_names[i]
+                        if pft_names and i < len(pft_names)
+                        else f"PFT{i+1}",
+                        float(frac[i]),
+                    )
+                    for i in range(len(frac))
+                    if np.isfinite(frac[i]) and frac[i] >= pft_min_frac
+                ),
                 key=lambda t: -t[1],
             )
             if items:
@@ -715,272 +718,6 @@ def plot_gcc_curves_all(
         print(f"Saved GCC curves plot to {filename}")
 
     return dict(sorted_sites)
-
-
-# ── 6. Feature and target distributions ──────────────────────────────────────
-
-
-def plot_feature_distributions(
-    site_files: List[str],
-    filename: str = "feature_distributions.png",
-    logger=None,
-    cols: int = 4,
-    n_bins: int = 60,
-    max_sites: int = 20,
-) -> None:
-    """
-    Plot histograms of all input features and the target variable.
-
-    Shows the raw distribution and, for log-transformed features, the
-    distribution after log1p. Useful for checking skewness, spotting
-    outliers, and verifying that normalization choices are appropriate.
-
-    Parameters
-    ----------
-    site_files : list of str
-        Paths to site CSVs. A random subset of max_sites is used to
-        keep computation fast.
-    filename : str
-        Output path for the figure.
-    logger : phenonn.utils.logger.Logger, optional
-    cols : int
-        Number of columns in the grid.
-    n_bins : int
-        Number of histogram bins.
-    max_sites : int
-        Maximum number of sites to sample (for speed).
-
-    Notes
-    -----
-    For each feature, the histogram shows:
-    - Blue: raw values (pooled across all sampled sites)
-    - Orange (if applicable): values after log1p transform
-    - Vertical red dashed lines: mean ± 1 std
-    - Title includes skewness and % of near-zero values
-
-    The target (LAI) is shown in green in the last panel.
-    """
-
-    # Sample sites for speed
-    rng = np.random.RandomState(42)
-    if len(site_files) > max_sites:
-        indices = rng.choice(len(site_files), max_sites, replace=False)
-        sampled = [site_files[i] for i in indices]
-    else:
-        sampled = site_files
-
-    # Load and concatenate data
-    all_dfs = []
-    for f in sampled:
-        df = pd.read_csv(f)
-        df = df.sort_values(["year", "doy"]).reset_index(drop=True)
-        df["doy_sin"] = np.sin(2 * np.pi * df["doy"] / 365.25)
-        df["doy_cos"] = np.cos(2 * np.pi * df["doy"] / 365.25)
-        # `add_derived_features` is the legacy pandas helper from the old
-        # LaiNN CSV pipeline. It lived in `data_creation/`, which is NOT part
-        # of this repository (dataset building is kept elsewhere), so this
-        # legacy plotting helper is unavailable here.
-        try:
-            from phenonn.data_creation.feature_engineering_pd_legacy import (  # noqa
-                add_derived_features,
-            )
-        except ModuleNotFoundError as exc:                      # pragma: no cover
-            raise ModuleNotFoundError(
-                "plot_feature_distributions() relies on the legacy CSV pipeline "
-                "helper `data_creation.feature_engineering_pd_legacy`, which is "
-                "not shipped with this repository. It is unused by the current "
-                "training/prediction pipeline."
-            ) from exc
-        df = add_derived_features(df)
-        all_dfs.append(df)
-    data = pd.concat(all_dfs, ignore_index=True)
-
-    # Features to plot
-    features = list(DYNAMIC_FEATURES) + list(CYCLIC_FEATURES) + list(PFT_COLS)
-    targets = ["LAI"]
-    all_vars = features + targets
-
-    n_vars = len(all_vars)
-    rows = math.ceil(n_vars / cols)
-    fig, axes = plt.subplots(rows, cols, figsize=(4.5 * cols, 3 * rows))
-    plt.subplots_adjust(hspace=0.3, left=0.3, right=0.9, top=0.9, bottom=0.1)
-    fig.suptitle(
-        f"Feature & target distributions ({len(sampled)} sites, "
-        f"{len(data):,} days)",
-        fontsize=14,
-    )
-
-    for idx, var_name in enumerate(all_vars):
-        r, c = divmod(idx, cols)
-        ax = axes[r][c] if rows > 1 else axes[c]
-
-        if var_name not in data.columns:
-            ax.set_title(f"{var_name}\n(not found)", fontsize=9)
-            ax.set_visible(False)
-            continue
-
-        vals = data[var_name].dropna().values
-
-        if len(vals) == 0:
-            ax.set_title(f"{var_name}\n(all NaN)", fontsize=9)
-            continue
-
-        # Compute stats
-        skewness = (
-            float(((vals - vals.mean()) ** 3).mean() / (vals.std() ** 3))
-            if vals.std() > 0
-            else 0
-        )
-        pct_zero = float(100 * (np.abs(vals) < 1e-6).mean())
-        mean_val = vals.mean()
-        std_val = vals.std()
-
-        # Choose color based on type
-        if var_name in targets:
-            color = "#2ca02c"  # green for target
-            label = "target"
-        else:
-            color = "#1f77b4"  # blue for features
-            label = "raw"
-
-        # Plot raw histogram
-        ax.hist(
-            vals,
-            bins=n_bins,
-            color=color,
-            alpha=0.7,
-            density=True,
-            label=label,
-            edgecolor="none",
-        )
-
-        # If log-transformed, overlay log1p distribution
-        if var_name in LOG_TRANSFORM_FEATURES:
-            vals_log = np.log1p(np.clip(vals, 0, None))
-            ax.hist(
-                vals_log,
-                bins=n_bins,
-                color="#ff7f0e",
-                alpha=0.5,
-                density=True,
-                label="log1p",
-                edgecolor="none",
-            )
-
-        # Mean ± std lines
-        ax.axvline(mean_val, color="red", linestyle="--", linewidth=1, alpha=0.7)
-        ax.axvline(
-            mean_val - std_val, color="red", linestyle=":", linewidth=0.8, alpha=0.5
-        )
-        ax.axvline(
-            mean_val + std_val, color="red", linestyle=":", linewidth=0.8, alpha=0.5
-        )
-
-        # Title with stats
-        ax.set_title(
-            f"{var_name}\n"
-            f"skew={skewness:+.2f}  zero={pct_zero:.0f}%  "
-            f"μ={mean_val:.2g}  σ={std_val:.2g}",
-            fontsize=8,
-        )
-        ax.tick_params(labelsize=7)
-        ax.legend(fontsize=7, loc="upper right")
-
-    # Hide unused axes
-    for idx in range(n_vars, rows * cols):
-        r, c = divmod(idx, cols)
-        ax = axes[r][c] if rows > 1 else axes[c]
-        ax.set_visible(False)
-
-    # Save the figure
-    plt.savefig(filename, bbox_inches="tight", dpi=150)
-    plt.close(fig)
-    if logger:
-        logger.info(f"Saved feature distributions plot to {filename}")
-    else:
-        print(f"Saved feature distributions plot to {filename}")
-
-
-# ── 7. Feature distributions per site ────────────────────────────────────────
-def plot_feature_distributions_per_site(
-    site_files: List[str],
-    output_dir: str = "./feature_distributions",
-    logger=None,
-    cols: int = 4,
-    n_bins: int = 60,
-) -> None:
-    """
-    Generate one feature distribution plot per site.
-
-    Produces one PNG file per site, named {sitename}_feature_distribution.png,
-    in the output directory. Each file shows the same histogram layout as
-    plot_feature_distributions but for a single site only.
-
-    Parameters
-    ----------
-    site_files : list of str
-        Paths to site CSVs.
-    output_dir : str
-        Directory where individual PNGs will be saved.
-    logger : phenonn.utils.logger.Logger, optional
-    cols : int
-        Number of columns in the histogram grid.
-    n_bins : int
-        Number of histogram bins.
-
-    Examples
-    --------
-    >>> site_files = sorted(glob.glob("./data/DB/*.csv"))
-    >>> plot_feature_distributions_per_site(site_files, output_dir="./runs/dist_per_site")
-    # Creates: ./runs/dist_per_site/DB_asuhighlands_feature_distribution.png
-    #          ./runs/dist_per_site/DB_bartlett_feature_distribution.png
-    #          ... (one per site)
-    """
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    n_sites = len(site_files)
-    failed_sites = []
-    for i, filepath in enumerate(site_files):
-        site_key = os.path.splitext(os.path.basename(filepath))[0]
-        out_filename = os.path.join(output_dir, f"{site_key}_feature_distribution.png")
-
-        progress_msg = f"  [{i+1}/{n_sites}] {site_key}"
-        if logger:
-            logger.info(progress_msg)
-        else:
-            print(progress_msg)
-
-        try:
-            plot_feature_distributions(
-                site_files=[filepath],
-                filename=out_filename,
-                logger=logger,
-                cols=cols,
-                n_bins=n_bins,
-                max_sites=1,
-            )
-        except Exception as e:
-            error_msg = f"    Failed to plot {site_key}: {str(e)}"
-            if logger:
-                logger.error(error_msg)
-            else:
-                print(error_msg)
-            failed_sites.append(site_key)
-            continue
-
-    if failed_sites:
-        summary = f"Completed {n_sites - len(failed_sites)}/{n_sites} sites. Failed: {', '.join(failed_sites)}"
-    else:
-        summary = f"Successfully saved {n_sites} distribution plots to {output_dir}/"
-
-    if logger:
-        if hasattr(logger, "success"):
-            logger.success(summary)
-        else:
-            logger.info(summary)
-    else:
-        print(summary)
 
 
 # ── Convenience: build histories from a training loop ────────────────────────

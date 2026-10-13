@@ -67,7 +67,7 @@ Usage
 import argparse
 import glob
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -81,42 +81,72 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Annual phenological trends — LAI_tot, SOS, EOS",
     )
-    p.add_argument("--predictions", default="",
-                   help="predictions CSV with columns site_id, year, doy, "
-                        "lai_obs, lai_pred. Output of prediction_big.py or "
-                        "xgb_predict.py.")
-    p.add_argument("--target_dir", default="",
-                   help="Folder of target_{Y}.csv (obs-only mode if "
-                        "--predictions is empty).")
-    p.add_argument("--sites_mode", default="all",
-                   choices=["all", "random", "explicit"],
-                   help="all = every site in the input; random = subsample of "
-                        "--n_sites; explicit = the --sites list.")
-    p.add_argument("--n_sites", type=int, default=200,
-                   help="Number of sites to sample when sites_mode=random.")
-    p.add_argument("--sites", default="",
-                   help="Comma-separated site IDs (used when "
-                        "sites_mode=explicit).")
-    p.add_argument("--years", default="",
-                   help="Year filter, e.g. '2001-2018' or '2010,2015'. "
-                        "Empty = use every year present in the input.")
-    p.add_argument("--clim_years", default="",
-                   help="Years used to build the OBSERVATION climatology line "
-                        "(e.g. '2001-2005'). For each site the across-year mean "
-                        "LAI curve is built, the metric is computed on it, and "
-                        "the median over sites is drawn as one horizontal "
-                        "reference line (same for every year) on each plot. "
-                        "Empty = no climatology line.")
-    p.add_argument("--min_valid", type=int, default=34,
-                   help="Skip (site, year) curves with fewer than this many "
-                        "valid dekads (default: 34).")
-    p.add_argument("--min_amplitude", type=float, default=0.3,
-                   help="Skip curves whose amplitude (max-min LAI) is below "
-                        "this — protects SOS/EOS from noise-dominated flat "
-                        "curves.")
-    p.add_argument("--output_dir", default="annual_trends",
-                   help="Output directory for the 5 PNG files and the raw "
-                        "metric tables.")
+    p.add_argument(
+        "--predictions",
+        default="",
+        help="predictions CSV with columns site_id, year, doy, "
+        "lai_obs, lai_pred. Output of prediction_big.py or "
+        "xgb_predict.py.",
+    )
+    p.add_argument(
+        "--target_dir",
+        default="",
+        help="Folder of target_{Y}.csv (obs-only mode if " "--predictions is empty).",
+    )
+    p.add_argument(
+        "--sites_mode",
+        default="all",
+        choices=["all", "random", "explicit"],
+        help="all = every site in the input; random = subsample of "
+        "--n_sites; explicit = the --sites list.",
+    )
+    p.add_argument(
+        "--n_sites",
+        type=int,
+        default=200,
+        help="Number of sites to sample when sites_mode=random.",
+    )
+    p.add_argument(
+        "--sites",
+        default="",
+        help="Comma-separated site IDs (used when " "sites_mode=explicit).",
+    )
+    p.add_argument(
+        "--years",
+        default="",
+        help="Year filter, e.g. '2001-2018' or '2010,2015'. "
+        "Empty = use every year present in the input.",
+    )
+    p.add_argument(
+        "--clim_years",
+        default="",
+        help="Years used to build the OBSERVATION climatology line "
+        "(e.g. '2001-2005'). For each site the across-year mean "
+        "LAI curve is built, the metric is computed on it, and "
+        "the median over sites is drawn as one horizontal "
+        "reference line (same for every year) on each plot. "
+        "Empty = no climatology line.",
+    )
+    p.add_argument(
+        "--min_valid",
+        type=int,
+        default=34,
+        help="Skip (site, year) curves with fewer than this many "
+        "valid dekads (default: 34).",
+    )
+    p.add_argument(
+        "--min_amplitude",
+        type=float,
+        default=0.3,
+        help="Skip curves whose amplitude (max-min LAI) is below "
+        "this — protects SOS/EOS from noise-dominated flat "
+        "curves.",
+    )
+    p.add_argument(
+        "--output_dir",
+        default="runs/annual_trends",
+        help="Output directory for the 5 PNG files and the raw " "metric tables.",
+    )
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -169,7 +199,8 @@ def _load_from_target_dir(path: str) -> pd.DataFrame:
         # indices 0..35; we precompute their (month, day, doy) tuple.
         obs = [
             (m, d, datetime.date(2001, m, d).timetuple().tm_yday)
-            for m in range(1, 13) for d in [5, 15, 25]
+            for m in range(1, 13)
+            for d in [5, 15, 25]
         ]
         doys_v = np.array([t[2] for t in obs], dtype=np.int16)
         frames = []
@@ -188,12 +219,16 @@ def _load_from_target_dir(path: str) -> pd.DataFrame:
                 finite = np.isfinite(col)
                 if not finite.any():
                     continue
-                frames.append(pd.DataFrame({
-                    "site_id": site_ids[finite],
-                    "year":    int(year),
-                    "doy":     int(doy),
-                    "lai_obs": col[finite].astype(np.float32),
-                }))
+                frames.append(
+                    pd.DataFrame(
+                        {
+                            "site_id": site_ids[finite],
+                            "year": int(year),
+                            "doy": int(doy),
+                            "lai_obs": col[finite].astype(np.float32),
+                        }
+                    )
+                )
         if not frames:
             raise RuntimeError("No valid LAI observations in --target_dir.")
         return pd.concat(frames, ignore_index=True)
@@ -209,8 +244,7 @@ def _load_from_target_dir(path: str) -> pd.DataFrame:
         dt = pd.to_datetime(df["date"].astype(str), format="%Y%m%d")
         df["doy"] = dt.dt.day_of_year
         frames.append(
-            df[["site_id", "year", "doy", "LAI"]]
-              .rename(columns={"LAI": "lai_obs"})
+            df[["site_id", "year", "doy", "LAI"]].rename(columns={"LAI": "lai_obs"})
         )
     return pd.concat(frames, ignore_index=True)
 
@@ -229,9 +263,7 @@ def _select_sites(df: pd.DataFrame, args) -> pd.DataFrame:
             raise ValueError("sites_mode=explicit but --sites is empty.")
         keep = [s for s in sites_all if s in wanted]
         if not keep:
-            raise RuntimeError(
-                "None of the --sites IDs matched the input data."
-            )
+            raise RuntimeError("None of the --sites IDs matched the input data.")
     else:
         raise ValueError(args.sites_mode)
     print(f"Selected {len(keep):,} sites / {len(sites_all):,} in input.")
@@ -242,7 +274,9 @@ def _select_sites(df: pd.DataFrame, args) -> pd.DataFrame:
 
 
 def _sos_eos_for_curve(
-    doy: np.ndarray, lai: np.ndarray, p: float,
+    doy: np.ndarray,
+    lai: np.ndarray,
+    p: float,
 ) -> Tuple[float, float]:
     """
     SOS_p : first DOY in the rising phase where LAI >= min + p·(max − min).
@@ -306,8 +340,10 @@ def _sos_eos_for_curve(
 
 
 def _metrics_per_curve(
-    g: pd.DataFrame, value_col: str,
-    min_valid: int, min_amplitude: float,
+    g: pd.DataFrame,
+    value_col: str,
+    min_valid: int,
+    min_amplitude: float,
 ) -> Dict[str, float]:
     """
     Compute the per-curve metrics (LAI_tot, SOS/EOS/LOS at 10 % and 25 %) for
@@ -322,14 +358,14 @@ def _metrics_per_curve(
 
     res = {
         "lai_tot": np.nan,
-        "sos_10":  np.nan,
-        "eos_10":  np.nan,
-        "sos_25":  np.nan,
-        "eos_25":  np.nan,
-        "los_10":  np.nan,
-        "los_25":  np.nan,
+        "sos_10": np.nan,
+        "eos_10": np.nan,
+        "sos_25": np.nan,
+        "eos_25": np.nan,
+        "los_10": np.nan,
+        "los_25": np.nan,
         "n_valid": n_valid,
-        "amp":     np.nan,
+        "amp": np.nan,
     }
     if n_valid < min_valid:
         return res
@@ -359,8 +395,10 @@ def _metrics_per_curve(
 
 
 def compute_metrics(
-    df: pd.DataFrame, value_col: str,
-    min_valid: int, min_amplitude: float,
+    df: pd.DataFrame,
+    value_col: str,
+    min_valid: int,
+    min_amplitude: float,
 ) -> pd.DataFrame:
     """One row per (site, year) with the 5 metrics + diagnostics."""
     records = []
@@ -373,8 +411,10 @@ def compute_metrics(
 
 
 def compute_climatology_metrics(
-    df: pd.DataFrame, value_col: str,
-    min_valid: int, min_amplitude: float,
+    df: pd.DataFrame,
+    value_col: str,
+    min_valid: int,
+    min_amplitude: float,
 ) -> pd.DataFrame:
     """
     One row per site with the 5 metrics computed on the *climatology* curve:
@@ -393,7 +433,8 @@ def compute_climatology_metrics(
 
 
 def aggregate_yearly(
-    df_metrics: pd.DataFrame, metric_col: str,
+    df_metrics: pd.DataFrame,
+    metric_col: str,
 ) -> pd.DataFrame:
     """
     Per-year aggregation across sites: count, median, Q1, Q3.
@@ -402,13 +443,15 @@ def aggregate_yearly(
     if df.empty:
         return pd.DataFrame(columns=["year", "n", "median", "q1", "q3"])
     g = df.groupby("year")[metric_col]
-    out = pd.DataFrame({
-        "year":   g.median().index,
-        "n":      g.size().values,
-        "median": g.median().values,
-        "q1":     g.quantile(0.25).values,
-        "q3":     g.quantile(0.75).values,
-    })
+    out = pd.DataFrame(
+        {
+            "year": g.median().index,
+            "n": g.size().values,
+            "median": g.median().values,
+            "q1": g.quantile(0.25).values,
+            "q3": g.quantile(0.75).values,
+        }
+    )
     return out.sort_values("year").reset_index(drop=True)
 
 
@@ -417,12 +460,12 @@ def aggregate_yearly(
 
 METRICS = [
     ("lai_tot", "Annual sum of dekadal LAI", "LAI_tot  (Σ over 36 dekads)"),
-    ("sos_10",  "Start of season — 10 % of amplitude (rising)",  "DOY"),
-    ("sos_25",  "Start of season — 25 % of amplitude (rising)",  "DOY"),
-    ("eos_10",  "End of season — 10 % of amplitude (falling)",   "DOY"),
-    ("eos_25",  "End of season — 25 % of amplitude (falling)",   "DOY"),
-    ("los_10",  "Length of season — 10 % of amplitude (EOS − SOS)", "Days"),
-    ("los_25",  "Length of season — 25 % of amplitude (EOS − SOS)", "Days"),
+    ("sos_10", "Start of season — 10 % of amplitude (rising)", "DOY"),
+    ("sos_25", "Start of season — 25 % of amplitude (rising)", "DOY"),
+    ("eos_10", "End of season — 10 % of amplitude (falling)", "DOY"),
+    ("eos_25", "End of season — 25 % of amplitude (falling)", "DOY"),
+    ("los_10", "Length of season — 10 % of amplitude (EOS − SOS)", "Days"),
+    ("los_25", "Length of season — 25 % of amplitude (EOS − SOS)", "Days"),
 ]
 
 
@@ -439,36 +482,52 @@ def plot_one_metric(
 
     if clim_value is not None and np.isfinite(clim_value):
         ax.axhline(
-            clim_value, color="#264653", lw=1.8, ls=":",
+            clim_value,
+            color="#264653",
+            lw=1.8,
+            ls=":",
             label=f"Climatology (obs) — median = {clim_value:.3g}",
         )
 
     if not obs_yearly.empty:
         ax.fill_between(
-            obs_yearly["year"], obs_yearly["q1"], obs_yearly["q3"],
-            color="#2a9d8f", alpha=0.25,
+            obs_yearly["year"],
+            obs_yearly["q1"],
+            obs_yearly["q3"],
+            color="#2a9d8f",
+            alpha=0.25,
         )
         ax.plot(
-            obs_yearly["year"], obs_yearly["median"],
-            "o-", color="#1b6e63", lw=2.0, markersize=5,
+            obs_yearly["year"],
+            obs_yearly["median"],
+            "o-",
+            color="#1b6e63",
+            lw=2.0,
+            markersize=5,
             label="Observation — median, IQR shaded",
         )
 
     if pred_yearly is not None and not pred_yearly.empty:
         ax.fill_between(
-            pred_yearly["year"], pred_yearly["q1"], pred_yearly["q3"],
-            color="#e76f51", alpha=0.25,
+            pred_yearly["year"],
+            pred_yearly["q1"],
+            pred_yearly["q3"],
+            color="#e76f51",
+            alpha=0.25,
         )
         ax.plot(
-            pred_yearly["year"], pred_yearly["median"],
-            "s--", color="#c14b30", lw=2.0, markersize=5,
+            pred_yearly["year"],
+            pred_yearly["median"],
+            "s--",
+            color="#c14b30",
+            lw=2.0,
+            markersize=5,
             label="Prediction — median, IQR shaded",
         )
 
     ax.set_xlabel("Year")
     ax.set_ylabel(ylabel)
-    ax.set_title(f"{title}\n(up to {n_sites:,} sites in the pool)",
-                 fontsize=11)
+    ax.set_title(f"{title}\n(up to {n_sites:,} sites in the pool)", fontsize=11)
     ax.grid(alpha=0.3)
     ax.legend(frameon=False, fontsize=9, loc="best")
     fig.tight_layout()
@@ -493,14 +552,17 @@ def main():
     if args.predictions:
         df_full = _load_from_predictions(args.predictions)
         has_pred = True
-        print(f"Loaded predictions CSV : {len(df_full):,} rows "
-              f"from {args.predictions}")
+        print(
+            f"Loaded predictions CSV : {len(df_full):,} rows "
+            f"from {args.predictions}"
+        )
     else:
         df_full = _load_from_target_dir(args.target_dir)
         df_full["lai_pred"] = np.nan
         has_pred = False
-        print(f"Loaded target dir      : {len(df_full):,} rows "
-              f"from {args.target_dir}")
+        print(
+            f"Loaded target dir      : {len(df_full):,} rows " f"from {args.target_dir}"
+        )
 
     # Keep the un-year-filtered frame so the climatology can be built from its
     # own (possibly different) set of years, independent of --years.
@@ -532,7 +594,10 @@ def main():
                 f"for the selected sites."
             )
         clim_metrics = compute_climatology_metrics(
-            clim_src, "lai_obs", args.min_valid, args.min_amplitude,
+            clim_src,
+            "lai_obs",
+            args.min_valid,
+            args.min_amplitude,
         )
         clim_metrics.to_csv(
             os.path.join(args.output_dir, "metrics_climatology.csv"),
@@ -550,7 +615,10 @@ def main():
     # ── Compute metrics ──
     print("\nComputing OBS metrics …")
     obs_metrics = compute_metrics(
-        df_full, "lai_obs", args.min_valid, args.min_amplitude,
+        df_full,
+        "lai_obs",
+        args.min_valid,
+        args.min_amplitude,
     )
     print(
         f"  {len(obs_metrics):,} (site, year) curves   "
@@ -562,7 +630,10 @@ def main():
     if has_pred:
         print("Computing PRED metrics …")
         pred_metrics = compute_metrics(
-            df_full, "lai_pred", args.min_valid, args.min_amplitude,
+            df_full,
+            "lai_pred",
+            args.min_valid,
+            args.min_amplitude,
         )
         print(
             f"  {len(pred_metrics):,} (site, year) curves   "
@@ -572,22 +643,27 @@ def main():
 
     # ── Save raw tables for offline use ──
     obs_metrics.to_csv(
-        os.path.join(args.output_dir, "metrics_obs.csv"), index=False,
+        os.path.join(args.output_dir, "metrics_obs.csv"),
+        index=False,
     )
     if pred_metrics is not None:
         pred_metrics.to_csv(
-            os.path.join(args.output_dir, "metrics_pred.csv"), index=False,
+            os.path.join(args.output_dir, "metrics_pred.csv"),
+            index=False,
         )
 
     # ── Plots ──
     print("\nPlotting trend figures …")
     for col, title, ylabel in METRICS:
         obs_y = aggregate_yearly(obs_metrics, col)
-        pred_y = (aggregate_yearly(pred_metrics, col)
-                  if pred_metrics is not None else None)
+        pred_y = (
+            aggregate_yearly(pred_metrics, col) if pred_metrics is not None else None
+        )
         plot_one_metric(
-            obs_y, pred_y,
-            title=title, ylabel=ylabel,
+            obs_y,
+            pred_y,
+            title=title,
+            ylabel=ylabel,
             filename=os.path.join(args.output_dir, f"{col}_trend.png"),
             n_sites=n_sites_total,
             clim_value=(clim_values.get(col) if clim_values else None),
@@ -600,13 +676,17 @@ def main():
         if obs_y.empty:
             print(f"  {col:8s} : no valid data")
             continue
-        line = (f"  {col:8s} : obs={obs_y['median'].median():8.3f}  "
-                f"(n_curves={int(obs_y['n'].sum()):,})")
+        line = (
+            f"  {col:8s} : obs={obs_y['median'].median():8.3f}  "
+            f"(n_curves={int(obs_y['n'].sum()):,})"
+        )
         if pred_metrics is not None:
             pred_y = aggregate_yearly(pred_metrics, col)
             if not pred_y.empty:
-                line += (f"   pred={pred_y['median'].median():8.3f}  "
-                         f"(n_curves={int(pred_y['n'].sum()):,})")
+                line += (
+                    f"   pred={pred_y['median'].median():8.3f}  "
+                    f"(n_curves={int(pred_y['n'].sum()):,})"
+                )
         if clim_values is not None and np.isfinite(clim_values.get(col, np.nan)):
             line += f"   clim={clim_values[col]:8.3f}"
         print(line)

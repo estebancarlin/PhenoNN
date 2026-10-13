@@ -98,9 +98,7 @@ class AttnLSTM(nn.Module):
             )
         n_weather = input_dim - n_pft
         if n_weather <= 0:
-            raise ValueError(
-                f"input_dim ({input_dim}) must be > n_pft ({n_pft})"
-            )
+            raise ValueError(f"input_dim ({input_dim}) must be > n_pft ({n_pft})")
         if d_model % 2 != 0:
             raise ValueError("d_model must be even for sinusoidal PE")
 
@@ -126,7 +124,7 @@ class AttnLSTM(nn.Module):
             self.weather_conv.weight, mode="fan_in", nonlinearity="leaky_relu"
         )
 
-        self.pos_enc1  = SinusoidalPositionalEncoding(
+        self.pos_enc1 = SinusoidalPositionalEncoding(
             d_model, max_len=max(seq_length, 5000)
         )
         self.norm_emb1 = nn.LayerNorm(d_model)
@@ -141,10 +139,9 @@ class AttnLSTM(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.stage1      = nn.TransformerEncoder(stage1_layer,
-                                                 num_layers=nr_blocks_stage1)
+        self.stage1 = nn.TransformerEncoder(stage1_layer, num_layers=nr_blocks_stage1)
         self.stage1_norm = nn.LayerNorm(d_model)
-        self.to_stress   = nn.Linear(d_model, stress_dim)
+        self.to_stress = nn.Linear(d_model, stress_dim)
 
         # ── Stage 2: stress + PFT → LAI (causal LSTM) ──
         self.lstm = nn.LSTM(
@@ -186,33 +183,32 @@ class AttnLSTM(nn.Module):
         """
         if x.size(-1) != self.input_dim:
             raise ValueError(
-                f"Expected input with {self.input_dim} channels, got "
-                f"{x.size(-1)}."
+                f"Expected input with {self.input_dim} channels, got " f"{x.size(-1)}."
             )
         B, L, _ = x.shape
         mask = self._get_mask(L)
 
         if self.n_pft > 0:
             weather = x[:, :, : -self.n_pft]  # (B, L, n_weather)
-            pft     = x[:, :, -self.n_pft :]  # (B, L, n_pft)
+            pft = x[:, :, -self.n_pft :]  # (B, L, n_pft)
         else:
             weather = x
-            pft     = x[:, :, :0]             # (B, L, 0)
+            pft = x[:, :, :0]  # (B, L, 0)
 
         # ── Stage 1: weather → stress ──
-        h = weather.transpose(1, 2)                  # (B, n_weather, L)
-        h = self.weather_conv(h).transpose(1, 2)     # (B, L, d_model)
+        h = weather.transpose(1, 2)  # (B, n_weather, L)
+        h = self.weather_conv(h).transpose(1, 2)  # (B, L, d_model)
         h = self.pos_enc1(h)
         h = self.norm_emb1(h)
         h = self.drop_emb1(h)
-        h = self.stage1(h, mask=mask)                # (B, L, d_model)
+        h = self.stage1(h, mask=mask)  # (B, L, d_model)
         h = self.stage1_norm(h)
-        stress = self.to_stress(h)                   # (B, L, stress_dim)
+        stress = self.to_stress(h)  # (B, L, stress_dim)
 
         # ── Stage 2: [stress, PFT] → LAI ──
-        y = torch.cat([stress, pft], dim=-1)          # (B, L, stress_dim + n_pft)
-        y, _ = self.lstm(y)                           # (B, L, lstm_hidden)
-        out = self.to_output(y)                       # (B, L, output_dim)
+        y = torch.cat([stress, pft], dim=-1)  # (B, L, stress_dim + n_pft)
+        y, _ = self.lstm(y)  # (B, L, lstm_hidden)
+        out = self.to_output(y)  # (B, L, output_dim)
 
         if return_stress:
             return out, stress

@@ -15,7 +15,7 @@ import unittest
 import tempfile
 import argparse
 from phenonn.utils.utils import EasyDict
-from phenonn.utils.model_utils import ModelUtils
+from legacy.utils.model_utils import ModelUtils
 
 
 class TestModel(nn.Module):

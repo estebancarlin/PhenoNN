@@ -64,14 +64,16 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import xarray as xr
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from phenonn.data.lai_dataset import load_parent01_map
 from phenonn.utils.config import METEO_BASE, FEATURES_FNAME, TARGETS_FNAME, PFT_NAMES
 
 
 HIST_BINS = 60
-CLIP_PCT = (0.5, 99.5)   # percentile x-range for readability of heavy tails
+CLIP_PCT = (0.5, 99.5)  # percentile x-range for readability of heavy tails
 
 # Seasonal stats are pooled on a fixed 366-day day-of-year grid so leap (366)
 # and non-leap (365) years align by calendar date. Feb 29 is grid slot 59
@@ -88,19 +90,33 @@ def parse_args():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--selected_pixels", required=True,
-                   help="selected_pixels_PFT{k}.nc — the PFT-dominated subset.")
-    p.add_argument("--era5_dir", required=True,
-                   help="Folder of ERA5_daily_pixelset_{Y}.nc.")
-    p.add_argument("--target_dir", required=True,
-                   help="Folder of LAI_dekadal_{Y}.nc.")
+    p.add_argument(
+        "--selected_pixels",
+        required=True,
+        help="selected_pixels_PFT{k}.nc — the PFT-dominated subset.",
+    )
+    p.add_argument(
+        "--era5_dir", required=True, help="Folder of ERA5_daily_pixelset_{Y}.nc."
+    )
+    p.add_argument("--target_dir", required=True, help="Folder of LAI_dekadal_{Y}.nc.")
     p.add_argument("--year_start", type=int, required=True)
     p.add_argument("--year_end", type=int, required=True)
-    p.add_argument("--features", default="",
-                   help="Comma-separated feature names to plot "
-                        "(default: config.METEO_BASE). Names absent from a "
-                        "file are skipped with a warning.")
-    p.add_argument("--output_dir", default="pft_diagnostics")
+    p.add_argument(
+        "--features",
+        default="",
+        help="Comma-separated feature names to plot "
+        "(default: config.METEO_BASE). Names absent from a "
+        "file are skipped with a warning.",
+    )
+    p.add_argument(
+        "--parent_map",
+        default="",
+        help="selected_pixels_01.nc mapping the subset's 0.05° (pix_...) "
+        "ids to the ERA5 cubes' 0.1° (E...) ids. Only the ERA5 side is "
+        "translated; LAI stays keyed by subset ids "
+        "(scripts/smoke_train.sh pairing).",
+    )
+    p.add_argument("--output_dir", default="runs/pft_diagnostics")
     return p.parse_args()
 
 
@@ -110,8 +126,11 @@ def parse_args():
 def _dekad_doys() -> np.ndarray:
     """Day-of-year of the 36 dekads (days 5/15/25 of each month, non-leap)."""
     return np.array(
-        [datetime.date(2001, m, d).timetuple().tm_yday
-         for m in range(1, 13) for d in (5, 15, 25)],
+        [
+            datetime.date(2001, m, d).timetuple().tm_yday
+            for m in range(1, 13)
+            for d in (5, 15, 25)
+        ],
         dtype=np.int16,
     )
 
@@ -130,8 +149,7 @@ def _site_mask(file_site_ids: np.ndarray, wanted: np.ndarray) -> np.ndarray:
     return np.isin(file_site_ids.astype(str), wanted)
 
 
-def _load_lai(target_dir: Path, years: range,
-              wanted: np.ndarray) -> np.ndarray:
+def _load_lai(target_dir: Path, years: range, wanted: np.ndarray) -> np.ndarray:
     """Pool dekadal LAI of the selected cells over all years.
 
     Returns an array (36, n_curves) where each column is one (site, year)
@@ -148,8 +166,9 @@ def _load_lai(target_dir: Path, years: range,
             mask = _site_mask(file_ids, wanted)
             if not mask.any():
                 continue
-            lai = (ds["LAI"].transpose("dekad", "site")
-                   .values[:, mask].astype(np.float32))   # (36, n_sel)
+            lai = (
+                ds["LAI"].transpose("dekad", "site").values[:, mask].astype(np.float32)
+            )  # (36, n_sel)
         cols.append(lai)
         print(f"  ✓ LAI {year}: {int(mask.sum()):,} sites")
     if not cols:
@@ -158,7 +177,10 @@ def _load_lai(target_dir: Path, years: range,
 
 
 def _load_features(
-    era5_dir: Path, years: range, wanted: np.ndarray, feats: List[str],
+    era5_dir: Path,
+    years: range,
+    wanted: np.ndarray,
+    feats: List[str],
 ) -> Tuple[Dict[str, Dict[int, np.ndarray]], Dict[str, Dict[str, np.ndarray]]]:
     """Read each ERA5 year once and return two views of the selected cells.
 
@@ -183,8 +205,9 @@ def _load_features(
             for f in feats:
                 if f not in ds:
                     continue
-                arr = (ds[f].transpose("time", "site")
-                       .values[:, mask].astype(np.float32))   # (n_time, n_sel)
+                arr = (
+                    ds[f].transpose("time", "site").values[:, mask].astype(np.float32)
+                )  # (n_time, n_sel)
                 flat = arr.ravel()
                 data[f][year] = flat[np.isfinite(flat)]
                 _accumulate_seasonal(acc, f, arr, year)
@@ -213,27 +236,31 @@ def _accumulate_seasonal(acc, f: str, arr: np.ndarray, year: int) -> None:
     """Fold one (n_time, n_sel) block into the running per-DOY accumulators."""
     gidx = _doy_grid_index(arr.shape[0])
     if gidx is None:
-        print(f"    [warn] {f} {year}: unexpected time length {arr.shape[0]} "
-              f"(not 365/366) — skipped in seasonal plot")
+        print(
+            f"    [warn] {f} {year}: unexpected time length {arr.shape[0]} "
+            f"(not 365/366) — skipped in seasonal plot"
+        )
         return
     a = acc[f]
     if a is None:
         a = acc[f] = {
             "ssum": np.zeros(SEASON_LEN, np.float64),
-            "ssq":  np.zeros(SEASON_LEN, np.float64),
-            "cnt":  np.zeros(SEASON_LEN, np.int64),
+            "ssq": np.zeros(SEASON_LEN, np.float64),
+            "cnt": np.zeros(SEASON_LEN, np.int64),
             "smin": np.full(SEASON_LEN, np.inf, np.float64),
             "smax": np.full(SEASON_LEN, -np.inf, np.float64),
         }
     valid = np.isfinite(arr)
     # gidx is strictly increasing and unique, so scatter-add has no collisions.
     a["ssum"][gidx] += np.nansum(arr, axis=1)
-    a["ssq"][gidx]  += np.nansum(arr.astype(np.float64) ** 2, axis=1)
-    a["cnt"][gidx]  += valid.sum(axis=1)
+    a["ssq"][gidx] += np.nansum(arr.astype(np.float64) ** 2, axis=1)
+    a["cnt"][gidx] += valid.sum(axis=1)
     a["smin"][gidx] = np.minimum(
-        a["smin"][gidx], np.where(valid, arr, np.inf).min(axis=1))
+        a["smin"][gidx], np.where(valid, arr, np.inf).min(axis=1)
+    )
     a["smax"][gidx] = np.maximum(
-        a["smax"][gidx], np.where(valid, arr, -np.inf).max(axis=1))
+        a["smax"][gidx], np.where(valid, arr, -np.inf).max(axis=1)
+    )
 
 
 def _finalize_seasonal(a: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -242,15 +269,15 @@ def _finalize_seasonal(a: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     empty = cnt == 0
     with np.errstate(invalid="ignore", divide="ignore"):
         mean = a["ssum"] / cnt
-        var = a["ssq"] / cnt - mean ** 2
+        var = a["ssq"] / cnt - mean**2
     std = np.sqrt(np.clip(var, 0.0, None))
     mean[empty] = np.nan
     std[empty] = np.nan
     return {
         "mean": mean,
-        "std":  std,
-        "min":  np.where(np.isfinite(a["smin"]), a["smin"], np.nan),
-        "max":  np.where(np.isfinite(a["smax"]), a["smax"], np.nan),
+        "std": std,
+        "min": np.where(np.isfinite(a["smin"]), a["smin"], np.nan),
+        "max": np.where(np.isfinite(a["smax"]), a["smax"], np.nan),
     }
 
 
@@ -266,16 +293,17 @@ def _plot_lai_seasonal(lai: np.ndarray, out_path: str, title: str) -> None:
     n = np.isfinite(lai).sum(axis=1)
 
     fig, ax = plt.subplots(figsize=(8.4, 4.8))
-    ax.fill_between(doys, lo, hi, color="#a8dadc", alpha=0.35,
-                    label="min–max envelope")
-    ax.fill_between(doys, mean - std, mean + std, color="#457b9d", alpha=0.35,
-                    label="±1 std")
-    ax.plot(doys, mean, "o-", color="#1d3557", lw=2.0, markersize=4,
-            label="mean")
+    ax.fill_between(doys, lo, hi, color="#a8dadc", alpha=0.35, label="min–max envelope")
+    ax.fill_between(
+        doys, mean - std, mean + std, color="#457b9d", alpha=0.35, label="±1 std"
+    )
+    ax.plot(doys, mean, "o-", color="#1d3557", lw=2.0, markersize=4, label="mean")
     ax.set_xlabel("Day of year (dekadal, days 5/15/25)")
     ax.set_ylabel("LAI")
-    ax.set_title(f"{title}\nseasonal LAI — {int(n.max()):,} (site, year) "
-                 f"curves pooled", fontsize=11)
+    ax.set_title(
+        f"{title}\nseasonal LAI — {int(n.max()):,} (site, year) " f"curves pooled",
+        fontsize=11,
+    )
     ax.grid(alpha=0.3)
     ax.legend(frameon=False, fontsize=9)
     fig.tight_layout()
@@ -297,8 +325,9 @@ def _feature_bins(all_vals: np.ndarray) -> np.ndarray:
     return np.linspace(lo, hi, HIST_BINS + 1)
 
 
-def _plot_features_hist(data: Dict[str, Dict[int, np.ndarray]],
-                        feats: List[str], out_path: str, title: str) -> None:
+def _plot_features_hist(
+    data: Dict[str, Dict[int, np.ndarray]], feats: List[str], out_path: str, title: str
+) -> None:
     nrows, ncols = _grid(len(feats))
     fig, axes = plt.subplots(nrows, ncols, figsize=(4.2 * ncols, 3.2 * nrows))
     axes = np.atleast_1d(axes).ravel()
@@ -311,7 +340,7 @@ def _plot_features_hist(data: Dict[str, Dict[int, np.ndarray]],
         ax.hist(allv, bins=bins, color="#457b9d", alpha=0.8)
         ax.set_title(f, fontsize=10)
         ax.grid(alpha=0.25)
-    for ax in axes[len(feats):]:
+    for ax in axes[len(feats) :]:
         ax.set_visible(False)
     fig.suptitle(title, fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
@@ -320,9 +349,9 @@ def _plot_features_hist(data: Dict[str, Dict[int, np.ndarray]],
     print(f"  → {out_path}")
 
 
-def _plot_features_by_year(data: Dict[str, Dict[int, np.ndarray]],
-                           feats: List[str], out_path: str,
-                           title: str) -> None:
+def _plot_features_by_year(
+    data: Dict[str, Dict[int, np.ndarray]], feats: List[str], out_path: str, title: str
+) -> None:
     years_all = sorted({y for f in feats for y in data[f]})
     if not years_all:
         print("  ✗ no feature data — skipping by-year plot")
@@ -345,7 +374,7 @@ def _plot_features_by_year(data: Dict[str, Dict[int, np.ndarray]],
             ax.plot(centers, dens, color=cmap(norm(year)), lw=1.3)
         ax.set_title(f, fontsize=10)
         ax.grid(alpha=0.25)
-    for ax in axes[len(feats):]:
+    for ax in axes[len(feats) :]:
         ax.set_visible(False)
 
     sm = matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -357,9 +386,12 @@ def _plot_features_by_year(data: Dict[str, Dict[int, np.ndarray]],
     print(f"  → {out_path}")
 
 
-def _plot_features_seasonal(seasonal: Dict[str, Dict[str, np.ndarray]],
-                            feats: List[str], out_path: str,
-                            title: str) -> None:
+def _plot_features_seasonal(
+    seasonal: Dict[str, Dict[str, np.ndarray]],
+    feats: List[str],
+    out_path: str,
+    title: str,
+) -> None:
     feats = [f for f in feats if f in seasonal]
     if not feats:
         print("  ✗ no seasonal feature data — skipping")
@@ -370,15 +402,22 @@ def _plot_features_seasonal(seasonal: Dict[str, Dict[str, np.ndarray]],
     for ax, f in zip(axes, feats):
         s = seasonal[f]
         doy = np.arange(1, s["mean"].shape[0] + 1)
-        ax.fill_between(doy, s["min"], s["max"], color="#a8dadc", alpha=0.35,
-                        label="min–max")
-        ax.fill_between(doy, s["mean"] - s["std"], s["mean"] + s["std"],
-                        color="#457b9d", alpha=0.35, label="±1 std")
+        ax.fill_between(
+            doy, s["min"], s["max"], color="#a8dadc", alpha=0.35, label="min–max"
+        )
+        ax.fill_between(
+            doy,
+            s["mean"] - s["std"],
+            s["mean"] + s["std"],
+            color="#457b9d",
+            alpha=0.35,
+            label="±1 std",
+        )
         ax.plot(doy, s["mean"], color="#1d3557", lw=1.5, label="mean")
         ax.set_title(f, fontsize=10)
         ax.set_xlabel("Day of year")
         ax.grid(alpha=0.25)
-    for ax in axes[len(feats):]:
+    for ax in axes[len(feats) :]:
         ax.set_visible(False)
     axes[0].legend(frameon=False, fontsize=8)
     fig.suptitle(title, fontsize=12)
@@ -401,9 +440,11 @@ def main():
     else:
         feats = list(METEO_BASE)
 
-    pft_lbl = (f"PFT {pft} ({PFT_NAMES[pft - 1]})"
-               if pft is not None and 1 <= pft <= len(PFT_NAMES)
-               else Path(args.selected_pixels).stem)
+    pft_lbl = (
+        f"PFT {pft} ({PFT_NAMES[pft - 1]})"
+        if pft is not None and 1 <= pft <= len(PFT_NAMES)
+        else Path(args.selected_pixels).stem
+    )
     title = f"{pft_lbl} — {len(site_ids):,} cells"
     print(f"{title}\nFeatures: {feats}\n")
 
@@ -411,9 +452,18 @@ def main():
 
     print("Loading LAI …")
     lai = _load_lai(Path(args.target_dir).resolve(), years, site_ids)
+    era_ids = site_ids
+    if args.parent_map:
+        pm = load_parent01_map(args.parent_map)
+        era_ids = np.array(sorted({pm[s] for s in site_ids if s in pm}))
+        print(
+            f"Parent map  : {args.parent_map} ({len(pm):,} links; "
+            f"{era_ids.size:,} ERA5 cells for {len(site_ids):,} subset sites)"
+        )
     print("\nLoading features …")
     data, seasonal = _load_features(
-        Path(args.era5_dir).resolve(), years, site_ids, feats)
+        Path(args.era5_dir).resolve(), years, era_ids, feats
+    )
 
     # Drop features with no data (e.g. a name absent from every file).
     feats = [f for f in feats if data[f]]
@@ -421,18 +471,23 @@ def main():
         print("[warn] none of the requested features were found in the files.")
 
     print("\nPlotting …")
-    _plot_lai_seasonal(
-        lai, os.path.join(args.output_dir, "lai_seasonal.png"), title)
+    _plot_lai_seasonal(lai, os.path.join(args.output_dir, "lai_seasonal.png"), title)
     if feats:
         _plot_features_hist(
-            data, feats,
-            os.path.join(args.output_dir, "features_hist.png"), title)
+            data, feats, os.path.join(args.output_dir, "features_hist.png"), title
+        )
         _plot_features_by_year(
-            data, feats,
-            os.path.join(args.output_dir, "features_dist_by_year.png"), title)
+            data,
+            feats,
+            os.path.join(args.output_dir, "features_dist_by_year.png"),
+            title,
+        )
         _plot_features_seasonal(
-            seasonal, feats,
-            os.path.join(args.output_dir, "features_seasonal.png"), title)
+            seasonal,
+            feats,
+            os.path.join(args.output_dir, "features_seasonal.png"),
+            title,
+        )
 
     print("\nDone.")
 

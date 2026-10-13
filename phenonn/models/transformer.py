@@ -141,7 +141,7 @@ class SelfAttention(nn.Module):
 
         # Scale by sqrt(head_dim) — the per-head dimension, not the full embed_size
         # This is the standard scaled dot-product attention: softmax(QK^T / sqrt(d_k))
-        attention = torch.softmax(energy / (self.head_dim ** 0.5), dim=3)
+        attention = torch.softmax(energy / (self.head_dim**0.5), dim=3)
 
         # Apply attention to values
         out = torch.einsum("nhql,nlhd->nqhd", [attention, values]).reshape(
@@ -692,8 +692,7 @@ def _sinusoidal_pe(positions, d_model: int) -> torch.Tensor:
     positions = torch.as_tensor(positions, dtype=torch.float32).unsqueeze(1)
     half = d_model // 2
     div_term = torch.exp(
-        torch.arange(0, half, dtype=torch.float32)
-        * (-math.log(10000.0) / half)
+        torch.arange(0, half, dtype=torch.float32) * (-math.log(10000.0) / half)
     )
     pe = torch.zeros(positions.size(0), d_model, dtype=torch.float32)
     pe[:, 0::2] = torch.sin(positions * div_term)
@@ -710,8 +709,8 @@ class SinusoidalPositionalEncoding(nn.Module):
 
     def __init__(self, d_model: int, max_len: int = 5000) -> None:
         super().__init__()
-        pe = _sinusoidal_pe(range(max_len), d_model)   # (max_len, d_model)
-        self.register_buffer("pe", pe.unsqueeze(0))    # (1, max_len, d_model)
+        pe = _sinusoidal_pe(range(max_len), d_model)  # (max_len, d_model)
+        self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x + self.pe[:, : x.size(1)]
@@ -803,9 +802,9 @@ class CausalSparseTransformer(nn.Module):
         if d_model % 2 != 0:
             raise ValueError("d_model must be even for sinusoidal PE")
 
-        self.seq_length    = seq_length
-        self.num_obs_days  = num_obs_days
-        self.causal        = causal
+        self.seq_length = seq_length
+        self.num_obs_days = num_obs_days
+        self.causal = causal
         self.output_channel = output_channel
 
         # ── 1. Input embedding: Conv1d(k=3) + sinusoidal PE + LayerNorm ──
@@ -820,9 +819,11 @@ class CausalSparseTransformer(nn.Module):
             self.input_conv.weight, mode="fan_in", nonlinearity="leaky_relu"
         )
 
-        self.pos_enc      = SinusoidalPositionalEncoding(d_model, max_len=max(seq_length, 5000))
-        self.embed_norm   = nn.LayerNorm(d_model)
-        self.embed_drop   = nn.Dropout(dropout)
+        self.pos_enc = SinusoidalPositionalEncoding(
+            d_model, max_len=max(seq_length, 5000)
+        )
+        self.embed_norm = nn.LayerNorm(d_model)
+        self.embed_drop = nn.Dropout(dropout)
 
         # ── 2. Causal encoder (pre-norm) ──
         encoder_layer = nn.TransformerEncoderLayer(
@@ -834,7 +835,7 @@ class CausalSparseTransformer(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.encoder      = nn.TransformerEncoder(encoder_layer, num_layers=e_layers)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=e_layers)
         self.encoder_norm = nn.LayerNorm(d_model)
 
         if causal:
@@ -851,7 +852,7 @@ class CausalSparseTransformer(nn.Module):
             raise ValueError(
                 f"Expected {num_obs_days} obs positions, got {len(obs_positions)}"
             )
-        self.obs_positions_list = list(obs_positions)   # for introspection
+        self.obs_positions_list = list(obs_positions)  # for introspection
 
         # Learnable query embeddings — small init so the position info dominates initially
         self.query_embed = nn.Parameter(torch.randn(num_obs_days, d_model) * 0.02)
@@ -867,7 +868,7 @@ class CausalSparseTransformer(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.decoder      = nn.TransformerDecoder(decoder_layer, num_layers=d_layers)
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=d_layers)
         self.decoder_norm = nn.LayerNorm(d_model)
 
         # Causal-aligned cross-attention mask: query i can only attend to
@@ -896,29 +897,31 @@ class CausalSparseTransformer(nn.Module):
         (B, output_channel, num_obs_days=36)
         """
         # ── Input embedding ──
-        x = self.input_conv(x)          # (B, d_model, L)
-        x = x.permute(0, 2, 1)          # (B, L, d_model)
+        x = self.input_conv(x)  # (B, d_model, L)
+        x = x.permute(0, 2, 1)  # (B, L, d_model)
         x = self.pos_enc(x)
         x = self.embed_norm(x)
         x = self.embed_drop(x)
 
         # ── Encoder (causal) ──
-        memory = self.encoder(x, mask=self.encoder_mask)   # (B, L, d_model)
+        memory = self.encoder(x, mask=self.encoder_mask)  # (B, L, d_model)
         memory = self.encoder_norm(memory)
 
         # ── Decoder: queries = learnable embeddings + sinusoidal positions ──
         B = memory.size(0)
-        queries = (self.query_embed + self.query_pos).unsqueeze(0).expand(
-            B, self.num_obs_days, -1
+        queries = (
+            (self.query_embed + self.query_pos)
+            .unsqueeze(0)
+            .expand(B, self.num_obs_days, -1)
         )
 
         decoder_out = self.decoder(
             tgt=queries,
             memory=memory,
             memory_mask=self.cross_mask,
-        )                               # (B, num_obs_days, d_model)
+        )  # (B, num_obs_days, d_model)
         decoder_out = self.decoder_norm(decoder_out)
 
         # ── Output projection ──
-        out = self.output_proj(decoder_out)       # (B, num_obs_days, output_channel)
+        out = self.output_proj(decoder_out)  # (B, num_obs_days, output_channel)
         return out.permute(0, 2, 1).contiguous()  # (B, output_channel, num_obs_days)

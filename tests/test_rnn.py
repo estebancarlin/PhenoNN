@@ -11,7 +11,7 @@ import torch
 import sys
 import os
 from phenonn.models.rnn import BaseRNN, RNN_LSTM, RNN_GRU
-from phenonn.utils.model_utils import ModelUtils
+from legacy.utils.model_utils import ModelUtils
 
 
 class TestBaseRNN(unittest.TestCase):
@@ -31,7 +31,7 @@ class TestBaseRNN(unittest.TestCase):
         self.num_layers = 3
 
         if self.logger:
-            self.logger.info("📋 Test setup - BaseRNN tests")
+            self.logger.info("Test setup - BaseRNN tests")
 
     # ------------------------------------------------------------------------
     # Initialization Tests
@@ -40,7 +40,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_init_lstm(self):
         """Test BaseRNN initialization with LSTM."""
         if self.logger:
-            self.logger.info("🔧 Testing BaseRNN initialization with LSTM")
+            self.logger.info("Testing BaseRNN initialization with LSTM")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -64,7 +64,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_init_gru(self):
         """Test BaseRNN initialization with GRU."""
         if self.logger:
-            self.logger.info("🔧 Testing BaseRNN initialization with GRU")
+            self.logger.info("Testing BaseRNN initialization with GRU")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -84,7 +84,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_init_invalid_type(self):
         """Test BaseRNN initialization with invalid rnn_type."""
         if self.logger:
-            self.logger.info("🔧 Testing BaseRNN initialization with invalid type")
+            self.logger.info("Testing BaseRNN initialization with invalid type")
 
         with self.assertRaises(ValueError):
             BaseRNN(
@@ -105,7 +105,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_forward_lstm_shape(self):
         """Test LSTM forward pass output shape."""
         if self.logger:
-            self.logger.info("🚀 Testing LSTM forward pass shape")
+            self.logger.info("Testing LSTM forward pass shape")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -127,7 +127,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_forward_gru_shape(self):
         """Test GRU forward pass output shape."""
         if self.logger:
-            self.logger.info("🚀 Testing GRU forward pass shape")
+            self.logger.info("Testing GRU forward pass shape")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -149,7 +149,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_forward_with_different_batch_sizes(self):
         """Test forward pass with different batch sizes."""
         if self.logger:
-            self.logger.info("📊 Testing forward with different batch sizes")
+            self.logger.info("Testing forward with different batch sizes")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -172,7 +172,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_forward_with_different_sequence_lengths(self):
         """Test forward pass with different sequence lengths."""
         if self.logger:
-            self.logger.info("📏 Testing forward with different sequence lengths")
+            self.logger.info("Testing forward with different sequence lengths")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -199,7 +199,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_init_hidden_lstm(self):
         """Test hidden state initialization for LSTM."""
         if self.logger:
-            self.logger.info("🔐 Testing hidden state initialization for LSTM")
+            self.logger.info("Testing hidden state initialization for LSTM")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -227,7 +227,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_init_hidden_gru(self):
         """Test hidden state initialization for GRU."""
         if self.logger:
-            self.logger.info("🔐 Testing hidden state initialization for GRU")
+            self.logger.info("Testing hidden state initialization for GRU")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -257,7 +257,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_gradient_flow_lstm(self):
         """Test gradient flow through LSTM model."""
         if self.logger:
-            self.logger.info("📈 Testing gradient flow for LSTM")
+            self.logger.info("Testing gradient flow for LSTM")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -286,7 +286,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_gradient_flow_gru(self):
         """Test gradient flow through GRU model."""
         if self.logger:
-            self.logger.info("📈 Testing gradient flow for GRU")
+            self.logger.info("Testing gradient flow for GRU")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -314,7 +314,7 @@ class TestBaseRNN(unittest.TestCase):
     def test_gradient_accumulation(self):
         """Test that gradients accumulate properly."""
         if self.logger:
-            self.logger.info("📊 Testing gradient accumulation")
+            self.logger.info("Testing gradient accumulation")
 
         model = BaseRNN(
             feature_channel=self.feature_channel,
@@ -370,12 +370,12 @@ class TestRNN_LSTM(unittest.TestCase):
         self.num_layers = 2
 
         if self.logger:
-            self.logger.info("📋 Test setup - RNN_LSTM tests")
+            self.logger.info("Test setup - RNN_LSTM tests")
 
     def test_init(self):
         """Test RNN_LSTM initialization."""
         if self.logger:
-            self.logger.info("🔧 Testing RNN_LSTM initialization")
+            self.logger.info("Testing RNN_LSTM initialization")
 
         model = RNN_LSTM(
             feature_channel=self.feature_channel,
@@ -399,7 +399,7 @@ class TestRNN_LSTM(unittest.TestCase):
     def test_forward(self):
         """Test RNN_LSTM forward pass."""
         if self.logger:
-            self.logger.info("🚀 Testing RNN_LSTM forward pass")
+            self.logger.info("Testing RNN_LSTM forward pass")
 
         model = RNN_LSTM(
             feature_channel=self.feature_channel,
@@ -435,12 +435,12 @@ class TestRNN_GRU(unittest.TestCase):
         self.num_layers = 2
 
         if self.logger:
-            self.logger.info("📋 Test setup - RNN_GRU tests")
+            self.logger.info("Test setup - RNN_GRU tests")
 
     def test_init(self):
         """Test RNN_GRU initialization."""
         if self.logger:
-            self.logger.info("🔧 Testing RNN_GRU initialization")
+            self.logger.info("Testing RNN_GRU initialization")
 
         model = RNN_GRU(
             feature_channel=self.feature_channel,
@@ -460,7 +460,7 @@ class TestRNN_GRU(unittest.TestCase):
     def test_forward(self):
         """Test RNN_GRU forward pass."""
         if self.logger:
-            self.logger.info("🚀 Testing RNN_GRU forward pass")
+            self.logger.info("Testing RNN_GRU forward pass")
 
         model = RNN_GRU(
             feature_channel=self.feature_channel,
@@ -489,7 +489,7 @@ class TestRNNIntegration(unittest.TestCase):
     def test_device_transfer_cpu_to_cuda(self):
         """Test model can be moved to CUDA if available."""
         if self.logger:
-            self.logger.info("🖥️ Testing device transfer CPU -> CUDA")
+            self.logger.info("Testing device transfer CPU -> CUDA")
 
         model = RNN_LSTM(
             feature_channel=6, output_channel=4, hidden_size=64, num_layers=2
@@ -509,7 +509,7 @@ class TestRNNIntegration(unittest.TestCase):
     def test_model_parameters_count(self):
         """Test model has expected number of parameters."""
         if self.logger:
-            self.logger.info("📊 Testing model parameter count")
+            self.logger.info("Testing model parameter count")
 
         model = RNN_LSTM(
             feature_channel=6, output_channel=4, hidden_size=64, num_layers=2
@@ -529,7 +529,7 @@ class TestRNNIntegration(unittest.TestCase):
     def test_model_serialization(self):
         """Test model can be saved and loaded."""
         if self.logger:
-            self.logger.info("💾 Testing model serialization")
+            self.logger.info("Testing model serialization")
 
         import tempfile
 

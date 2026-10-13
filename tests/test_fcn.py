@@ -10,7 +10,7 @@ import unittest
 import torch
 import sys
 import os
-from phenonn.models.fcn import FCN, FCBlock
+from legacy.models.fcn import FCN, FCBlock
 
 
 class TestFCBlock(unittest.TestCase):

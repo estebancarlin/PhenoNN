@@ -34,24 +34,40 @@ import matplotlib.pyplot as plt
 
 def parse_args():
     p = argparse.ArgumentParser(description="Plot leaf-out date histograms")
-    p.add_argument("--target_dir", required=True,
-                   help="Directory with target_{year}.csv files")
-    p.add_argument("--target_files", nargs="*", default=None,
-                   help="Explicit list of target CSVs (overrides --target_dir)")
-    p.add_argument("--n_sites", type=int, default=200,
-                   help="Number of sites to sample randomly")
-    p.add_argument("--years", default=None,
-                   help="Year filter, e.g. '2001-2003' or '2000,2005'")
-    p.add_argument("--thresholds", default="10,25,50,75",
-                   help="Comma-separated thresholds in %% of annual max")
-    p.add_argument("--min_max_lai", type=float, default=0.5,
-                   help="Skip curves whose annual max LAI is below this")
-    p.add_argument("--min_valid", type=int, default=12,
-                   help="Skip curves with fewer than this many valid dekads")
-    p.add_argument("--output", default="phenology_dates.png",
-                   help="Output figure path")
-    p.add_argument("--seed", type=int, default=42,
-                   help="Random seed for site sampling")
+    p.add_argument(
+        "--target_dir", required=True, help="Directory with target_{year}.csv files"
+    )
+    p.add_argument(
+        "--target_files",
+        nargs="*",
+        default=None,
+        help="Explicit list of target CSVs (overrides --target_dir)",
+    )
+    p.add_argument(
+        "--n_sites", type=int, default=200, help="Number of sites to sample randomly"
+    )
+    p.add_argument(
+        "--years", default=None, help="Year filter, e.g. '2001-2003' or '2000,2005'"
+    )
+    p.add_argument(
+        "--thresholds",
+        default="10,25,50,75",
+        help="Comma-separated thresholds in %% of annual max",
+    )
+    p.add_argument(
+        "--min_max_lai",
+        type=float,
+        default=0.5,
+        help="Skip curves whose annual max LAI is below this",
+    )
+    p.add_argument(
+        "--min_valid",
+        type=int,
+        default=12,
+        help="Skip curves with fewer than this many valid dekads",
+    )
+    p.add_argument("--output", default="runs/phenology_dates.png", help="Output figure path")
+    p.add_argument("--seed", type=int, default=42, help="Random seed for site sampling")
     return p.parse_args()
 
 
@@ -74,10 +90,8 @@ def _list_target_files(args) -> List[str]:
     if args.target_files:
         files = list(args.target_files)
     else:
-        nc  = sorted(glob.glob(os.path.join(args.target_dir,
-                                            "LAI_dekadal_*.nc")))
-        csv = sorted(glob.glob(os.path.join(args.target_dir,
-                                            "target_*.csv")))
+        nc = sorted(glob.glob(os.path.join(args.target_dir, "LAI_dekadal_*.nc")))
+        csv = sorted(glob.glob(os.path.join(args.target_dir, "target_*.csv")))
         files = nc if nc else csv
     if not files:
         raise FileNotFoundError(
@@ -126,8 +140,9 @@ def _crossing_doy(doy: np.ndarray, lai: np.ndarray, thresh_frac: float):
     return float(x0 + frac * (x1 - x0))
 
 
-def compute_phenology_dates(df: pd.DataFrame, thresholds: List[float],
-                            min_max_lai: float, min_valid: int) -> pd.DataFrame:
+def compute_phenology_dates(
+    df: pd.DataFrame, thresholds: List[float], min_max_lai: float, min_valid: int
+) -> pd.DataFrame:
     """
     Return one row per (site_id, year) with crossing DOYs for each threshold.
     """
@@ -153,13 +168,13 @@ def compute_phenology_dates(df: pd.DataFrame, thresholds: List[float],
     return pd.DataFrame.from_records(records)
 
 
-def plot_histograms(dates: pd.DataFrame, thresholds: List[float],
-                    output: str):
+def plot_histograms(dates: pd.DataFrame, thresholds: List[float], output: str):
     n = len(thresholds)
     ncols = 2 if n > 1 else 1
     nrows = int(np.ceil(n / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows),
-                             squeeze=False)
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(6 * ncols, 4 * nrows), squeeze=False
+    )
     axes = axes.ravel()
 
     # shared x-range from all thresholds for visual comparison
@@ -173,15 +188,12 @@ def plot_histograms(dates: pd.DataFrame, thresholds: List[float],
 
     for ax, t, col in zip(axes, thresholds, cols):
         vals = dates[col].dropna().to_numpy()
-        ax.hist(vals, bins=bins, color="#3a86ff", edgecolor="white",
-                alpha=0.85)
+        ax.hist(vals, bins=bins, color="#3a86ff", edgecolor="white", alpha=0.85)
         mean = float(np.mean(vals)) if vals.size else float("nan")
         median = float(np.median(vals)) if vals.size else float("nan")
         ax.axvline(median, color="#d62828", lw=1.8, label=f"median = {median:.0f}")
-        ax.axvline(mean,   color="#073b4c", lw=1.4, ls="--",
-                   label=f"mean = {mean:.1f}")
-        ax.set_title(f"DOY at {int(round(t*100))}% of annual max  "
-                     f"(n={vals.size})")
+        ax.axvline(mean, color="#073b4c", lw=1.4, ls="--", label=f"mean = {mean:.1f}")
+        ax.set_title(f"DOY at {int(round(t*100))}% of annual max  " f"(n={vals.size})")
         ax.set_xlabel("Day of year")
         ax.set_ylabel("Count of (site, year) curves")
         ax.set_xlim(xmin, xmax)
@@ -189,14 +201,14 @@ def plot_histograms(dates: pd.DataFrame, thresholds: List[float],
         ax.grid(alpha=0.25)
 
     # hide unused panels
-    for ax in axes[len(thresholds):]:
+    for ax in axes[len(thresholds) :]:
         ax.set_visible(False)
 
     fig.suptitle(
         f"Leaf-out dates over {dates['site_id'].nunique()} sites "
         f"× {dates['year'].nunique()} years "
         f"({len(dates)} curves)",
-        fontsize=13
+        fontsize=13,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.96])
     fig.savefig(output, dpi=150)
@@ -211,9 +223,9 @@ def _load_year_long(path: str) -> pd.DataFrame:
     For NetCDF, the spatial grid is converted to `pix_LLLL_OOOOO` site IDs
     so the rest of the script processes both sources identically.
     """
-    import datetime
     if path.endswith(".nc"):
         import xarray as xr
+
         year = int(os.path.basename(path).split(".")[0].split("_")[-1])
         ds = xr.open_dataset(path)
         # Pixelset LAI(dekad, site): site_id straight from the coord.
@@ -225,12 +237,16 @@ def _load_year_long(path: str) -> pd.DataFrame:
         dates = [int(f"{year:04d}{m:02d}{d:02d}") for (m, d) in obs]
         frames = []
         for k, date_int in enumerate(dates):
-            frames.append(pd.DataFrame({
-                "site_id": site_ids,
-                "date":    date_int,
-                "year":    year,
-                "LAI":     lai[:, k],
-            }))
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "site_id": site_ids,
+                        "date": date_int,
+                        "year": year,
+                        "LAI": lai[:, k],
+                    }
+                )
+            )
         return pd.concat(frames, ignore_index=True)
     # Legacy CSV
     return pd.read_csv(path, usecols=["site_id", "date", "year", "LAI"])
@@ -239,8 +255,10 @@ def _load_year_long(path: str) -> pd.DataFrame:
 def main():
     args = parse_args()
     files = _list_target_files(args)
-    print(f"Reading {len(files)} target file(s): "
-          f"{os.path.basename(files[0])} … {os.path.basename(files[-1])}")
+    print(
+        f"Reading {len(files)} target file(s): "
+        f"{os.path.basename(files[0])} … {os.path.basename(files[-1])}"
+    )
 
     thresholds = [float(t) / 100.0 for t in args.thresholds.split(",")]
     print(f"Thresholds (% of annual max): {[int(t*100) for t in thresholds]}")
@@ -266,12 +284,15 @@ def main():
     print(f"Loaded {len(df):,} rows across {df['year'].nunique()} year(s)")
 
     dates = compute_phenology_dates(
-        df, thresholds,
+        df,
+        thresholds,
         min_max_lai=args.min_max_lai,
         min_valid=args.min_valid,
     )
-    print(f"Computed leaf-out dates for {len(dates)} (site, year) curves "
-          f"({dates['site_id'].nunique()} unique sites)")
+    print(
+        f"Computed leaf-out dates for {len(dates)} (site, year) curves "
+        f"({dates['site_id'].nunique()} unique sites)"
+    )
 
     if dates.empty:
         raise RuntimeError(
@@ -284,8 +305,10 @@ def main():
     for t in thresholds:
         col = f"doy_{int(round(t*100))}"
         v = dates[col].dropna()
-        print(f"  {int(t*100):>3d}%:  mean={v.mean():6.1f}  "
-              f"median={v.median():5.0f}  std={v.std():5.1f}  n={len(v)}")
+        print(
+            f"  {int(t*100):>3d}%:  mean={v.mean():6.1f}  "
+            f"median={v.median():5.0f}  std={v.std():5.1f}  n={len(v)}"
+        )
 
     plot_histograms(dates, thresholds, args.output)
 

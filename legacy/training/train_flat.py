@@ -186,7 +186,7 @@ from phenonn.data.dataset_flat import (
 )
 from phenonn.models.rnn import RNN_LSTM, RNN_GRU
 from phenonn.models.transformer import EncoderTorch
-from phenonn.models.transformerbis import BiTransformer
+from legacy.models.transformerbis import BiTransformer
 from phenonn.utils.wrappers import Every10DaysWrapper, permuteWrapper
 from phenonn.utils.diagnostics import (
     plot_loss_histories,

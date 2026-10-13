@@ -141,9 +141,7 @@ class BiTransformerV2(nn.Module):
             )
         n_weather = input_dim - n_pft
         if n_weather <= 0:
-            raise ValueError(
-                f"input_dim ({input_dim}) must be > n_pft ({n_pft})"
-            )
+            raise ValueError(f"input_dim ({input_dim}) must be > n_pft ({n_pft})")
         if d_model % 2 != 0 or d_model2 % 2 != 0:
             raise ValueError("d_model and d_model2 must be even for sinusoidal PE")
 
@@ -171,11 +169,11 @@ class BiTransformerV2(nn.Module):
             self.weather_conv.weight, mode="fan_in", nonlinearity="leaky_relu"
         )
 
-        self.pos_enc1   = SinusoidalPositionalEncoding(
+        self.pos_enc1 = SinusoidalPositionalEncoding(
             d_model, max_len=max(seq_length, 5000)
         )
-        self.norm_emb1  = nn.LayerNorm(d_model)
-        self.drop_emb1  = nn.Dropout(dropout_trans)
+        self.norm_emb1 = nn.LayerNorm(d_model)
+        self.drop_emb1 = nn.Dropout(dropout_trans)
 
         stage1_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
@@ -186,18 +184,17 @@ class BiTransformerV2(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.stage1      = nn.TransformerEncoder(stage1_layer,
-                                                 num_layers=nr_blocks_stage1)
+        self.stage1 = nn.TransformerEncoder(stage1_layer, num_layers=nr_blocks_stage1)
         self.stage1_norm = nn.LayerNorm(d_model)
-        self.to_stress   = nn.Linear(d_model, stress_dim)
+        self.to_stress = nn.Linear(d_model, stress_dim)
 
         # ── Stage 2: stress + PFT → LAI ──
-        self.fuse_proj   = nn.Linear(stress_dim + n_pft, d_model2)
-        self.pos_enc2    = SinusoidalPositionalEncoding(
+        self.fuse_proj = nn.Linear(stress_dim + n_pft, d_model2)
+        self.pos_enc2 = SinusoidalPositionalEncoding(
             d_model2, max_len=max(seq_length, 5000)
         )
-        self.norm_emb2   = nn.LayerNorm(d_model2)
-        self.drop_emb2   = nn.Dropout(dropout_encoder)
+        self.norm_emb2 = nn.LayerNorm(d_model2)
+        self.drop_emb2 = nn.Dropout(dropout_encoder)
 
         stage2_layer = nn.TransformerEncoderLayer(
             d_model=d_model2,
@@ -208,10 +205,9 @@ class BiTransformerV2(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.stage2      = nn.TransformerEncoder(stage2_layer,
-                                                 num_layers=nr_blocks_stage2)
+        self.stage2 = nn.TransformerEncoder(stage2_layer, num_layers=nr_blocks_stage2)
         self.stage2_norm = nn.LayerNorm(d_model2)
-        self.to_output   = nn.Linear(d_model2, output_dim)
+        self.to_output = nn.Linear(d_model2, output_dim)
 
         # ── Causal mask (precomputed, shared between the two stages) ──
         # PyTorch convention: additive mask, -inf = blocked, 0 = allowed.
@@ -230,9 +226,7 @@ class BiTransformerV2(nn.Module):
         # Crop if a shorter sequence is passed at inference
         return self.causal_mask[:L, :L]
 
-    def forward(
-        self, x: torch.Tensor, return_stress: bool = False
-    ):
+    def forward(self, x: torch.Tensor, return_stress: bool = False):
         """
         Parameters
         ----------
@@ -250,40 +244,39 @@ class BiTransformerV2(nn.Module):
         """
         if x.size(-1) != self.input_dim:
             raise ValueError(
-                f"Expected input with {self.input_dim} channels, got "
-                f"{x.size(-1)}."
+                f"Expected input with {self.input_dim} channels, got " f"{x.size(-1)}."
             )
         B, L, _ = x.shape
         mask = self._get_mask(L)
 
         if self.n_pft > 0:
             weather = x[:, :, : -self.n_pft]  # (B, L, n_weather)
-            pft     = x[:, :, -self.n_pft :]  # (B, L, n_pft) — constant in time
+            pft = x[:, :, -self.n_pft :]  # (B, L, n_pft) — constant in time
         else:
             # n_pft=0: the whole input is weather, stage 2 is not PFT-conditioned
             # (avoids the x[..., :-0] == empty-slice pitfall).
             weather = x
-            pft     = x[:, :, :0]             # (B, L, 0)
+            pft = x[:, :, :0]  # (B, L, 0)
 
         # ── Stage 1: weather → stress ──
-        h = weather.transpose(1, 2)                  # (B, n_weather, L) for Conv1d
-        h = self.weather_conv(h).transpose(1, 2)     # (B, L, d_model)
+        h = weather.transpose(1, 2)  # (B, n_weather, L) for Conv1d
+        h = self.weather_conv(h).transpose(1, 2)  # (B, L, d_model)
         h = self.pos_enc1(h)
         h = self.norm_emb1(h)
         h = self.drop_emb1(h)
-        h = self.stage1(h, mask=mask)                # (B, L, d_model)
+        h = self.stage1(h, mask=mask)  # (B, L, d_model)
         h = self.stage1_norm(h)
-        stress = self.to_stress(h)                   # (B, L, stress_dim)
+        stress = self.to_stress(h)  # (B, L, stress_dim)
 
         # ── Stage 2: stress + PFT → LAI ──
-        y = torch.cat([stress, pft], dim=-1)          # (B, L, stress_dim + n_pft)
-        y = self.fuse_proj(y)                         # (B, L, d_model)
+        y = torch.cat([stress, pft], dim=-1)  # (B, L, stress_dim + n_pft)
+        y = self.fuse_proj(y)  # (B, L, d_model)
         y = self.pos_enc2(y)
         y = self.norm_emb2(y)
         y = self.drop_emb2(y)
-        y = self.stage2(y, mask=mask)                # (B, L, d_model)
+        y = self.stage2(y, mask=mask)  # (B, L, d_model)
         y = self.stage2_norm(y)
-        out = self.to_output(y)                       # (B, L, output_dim)
+        out = self.to_output(y)  # (B, L, output_dim)
 
         if return_stress:
             return out, stress

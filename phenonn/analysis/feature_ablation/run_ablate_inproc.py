@@ -40,16 +40,16 @@ COMBO_FEATURES = ["tp_sum", "ssrd_sum", "strd_sum", "VPD_max", "Tmean"]
 
 # ── Ablation groups (name, feature list). Related meteo features go together. ──
 _RAW_GROUPS = [
-    ("baseline",      []),
-    ("temperature",   ["Tmin", "Tmax", "Tmean"]),
-    ("radiation",     ["ssrd_sum", "strd_sum"]),     # the two downward fluxes
+    ("baseline", []),
+    ("temperature", ["Tmin", "Tmax", "Tmean"]),
+    ("radiation", ["ssrd_sum", "strd_sum"]),  # the two downward fluxes
     ("net_radiation", ["Rn_tot"]),
-    ("vpd",           ["VPD_max", "VPD_mean"]),
-    ("precip",        ["tp_sum"]),
-    ("smi",           ["SMI"]),
-    ("pet",           ["PET"]),
-    ("daylength",     ["daylength"]),
-    ("co2",           ["co2"]),
+    ("vpd", ["VPD_max", "VPD_mean"]),
+    ("precip", ["tp_sum"]),
+    ("smi", ["SMI"]),
+    ("pet", ["PET"]),
+    ("daylength", ["daylength"]),
+    ("co2", ["co2"]),
     # Combined ablation (removed together): precip + both radiation fluxes +
     # VPD_max + Tmean. Runs on the same GPU as co2 (last slice).
     ("combo_rad_tp_vpdmax_tmean", COMBO_FEATURES),
@@ -64,8 +64,9 @@ def _channels(feats):
     for f in feats:
         ch = ALL_FEATURES.index(f)
         if ch >= PFT_START:
-            raise SystemExit(f"{f!r} is a PFT channel; only non-PFT features "
-                             f"are ablatable.")
+            raise SystemExit(
+                f"{f!r} is a PFT channel; only non-PFT features " f"are ablatable."
+            )
         chs.append(ch)
     return chs
 
@@ -73,6 +74,7 @@ def _channels(feats):
 def _install(module, channels):
     """Wrap build_model / build_model_pft in `module` so the returned model
     zeroes the given input channels before every forward. Returns the originals."""
+
     def hook(_mod, inputs):
         x = inputs[0]
         if not torch.is_tensor(x):
@@ -124,19 +126,23 @@ def _seed_all(seed):
 
 
 def _is_done(args_i):
-    return os.path.exists(os.path.join(args_i.output_dir, args_i.experiment,
-                                       "config.json"))
+    return os.path.exists(
+        os.path.join(args_i.output_dir, args_i.experiment, "config.json")
+    )
 
 
 def main():
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--model", default="aelstm")
-    ap.add_argument("--indices", default="",
-                    help="Ablation groups for THIS process: '0-2', '0,3', or "
-                         "empty for all. Slice across GPUs (3/GPU).")
+    ap.add_argument(
+        "--indices",
+        default="",
+        help="Ablation groups for THIS process: '0-2', '0,3', or "
+        "empty for all. Slice across GPUs (3/GPU).",
+    )
     known, rest = ap.parse_known_args()
 
-    base_args = T.parse_args(rest)                 # standard train_full_ram CLI
+    base_args = T.parse_args(rest)  # standard train_full_ram CLI
 
     idxs = _parse_indices(known.indices, len(GROUPS))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -146,10 +152,14 @@ def main():
 
     sweep_dir = os.path.join(base_args.output_dir, f"ablate_{known.model}")
     FileUtils.makedir(sweep_dir)
-    load_logger = Logger(console_output=True, file_output=True,
-                         log_file=os.path.join(sweep_dir, "load.log"))
-    load_logger.show_header(f"PhenoNN group ablation — {known.model} "
-                            f"({len(idxs)}/{len(GROUPS)} groups)")
+    load_logger = Logger(
+        console_output=True,
+        file_output=True,
+        log_file=os.path.join(sweep_dir, "load.log"),
+    )
+    load_logger.show_header(
+        f"PhenoNN group ablation — {known.model} " f"({len(idxs)}/{len(GROUPS)} groups)"
+    )
 
     _seed_all(base_args.seed)
     shared = T.load_shared(base_args, load_logger, device)
@@ -167,10 +177,14 @@ def main():
 
         log_dir = os.path.join(args_i.output_dir, args_i.experiment, "logs")
         FileUtils.makedir(log_dir)
-        cfg_logger = Logger(console_output=True, file_output=True,
-                            log_file=os.path.join(log_dir, "train.log"))
-        cfg_logger.show_header(f"{known.model} ablate [{name}] "
-                               f"channels={channels} feats={feats}")
+        cfg_logger = Logger(
+            console_output=True,
+            file_output=True,
+            log_file=os.path.join(log_dir, "train.log"),
+        )
+        cfg_logger.show_header(
+            f"{known.model} ablate [{name}] " f"channels={channels} feats={feats}"
+        )
 
         _seed_all(args_i.seed)
         orig = _install(T, channels) if channels else None

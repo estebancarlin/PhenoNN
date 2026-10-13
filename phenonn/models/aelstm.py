@@ -30,7 +30,7 @@ replacement for RNN_LSTM under Every10DaysWrapper / PFTMixingWrapper.
 import torch
 import torch.nn as nn
 
-from typing import Tuple, Union
+from typing import Tuple
 
 
 class SelfAttentionBlock(nn.Module):
@@ -102,9 +102,7 @@ class SelfAttentionBlock(nn.Module):
             nn.Dropout(dropout),
         )
 
-    def forward(
-        self, x: torch.Tensor, attn_mask: torch.Tensor = None
-    ) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask: torch.Tensor = None) -> torch.Tensor:
         """
         Parameters
         ----------
@@ -119,9 +117,7 @@ class SelfAttentionBlock(nn.Module):
         """
         # Self-attention sublayer (pre-norm + residual)
         h = self.norm_attn(x)
-        attn_out, _ = self.attn(
-            h, h, h, attn_mask=attn_mask, need_weights=False
-        )
+        attn_out, _ = self.attn(h, h, h, attn_mask=attn_mask, need_weights=False)
         x = x + self.drop_attn(attn_out)
 
         # Feed-forward sublayer (pre-norm + residual)
@@ -197,8 +193,8 @@ class AELSTM(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.hidden_size   = hidden_size
-        self.num_layers    = num_layers
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
         self.output_channel = output_channel
 
         self.lstm = nn.LSTM(
@@ -210,15 +206,17 @@ class AELSTM(nn.Module):
             bidirectional=False,
         )
 
-        self.attn_blocks = nn.ModuleList([
-            SelfAttentionBlock(
-                d_model=hidden_size,
-                nhead=nhead,
-                ff_expansion=ff_expansion,
-                dropout=dropout_att,
-            )
-            for _ in range(n_attn_blocks)
-        ])
+        self.attn_blocks = nn.ModuleList(
+            [
+                SelfAttentionBlock(
+                    d_model=hidden_size,
+                    nhead=nhead,
+                    ff_expansion=ff_expansion,
+                    dropout=dropout_att,
+                )
+                for _ in range(n_attn_blocks)
+            ]
+        )
 
         # Final LayerNorm after the attention stack — standard practice.
         self.norm_out = nn.LayerNorm(hidden_size)
@@ -246,8 +244,11 @@ class AELSTM(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Zero hidden / cell states for the LSTM."""
         h = torch.zeros(
-            self.num_layers, batch_size, self.hidden_size,
-            device=device, requires_grad=False,
+            self.num_layers,
+            batch_size,
+            self.hidden_size,
+            device=device,
+            requires_grad=False,
         )
         return h, h.clone()
 
@@ -265,18 +266,18 @@ class AELSTM(nn.Module):
         x = x.permute(0, 2, 1)
 
         hidden = self.init_hidden(x.size(0), x.device)
-        out, _ = self.lstm(x, hidden)              # (B, L, H)
+        out, _ = self.lstm(x, hidden)  # (B, L, H)
 
         # Causal mask so each timestep attends only to the past (and itself);
         # without it the self-attention would leak future days into day t.
         # Precomputed buffer, cropped to the actual length (and cast to the
         # current dtype, e.g. under bf16 autocast).
-        causal_mask = self.causal_mask[:out.size(1), :out.size(1)]
+        causal_mask = self.causal_mask[: out.size(1), : out.size(1)]
         if causal_mask.dtype != out.dtype:
             causal_mask = causal_mask.to(out.dtype)
         for block in self.attn_blocks:
             out = block(out, attn_mask=causal_mask)  # (B, L, H)
 
         out = self.norm_out(out)
-        out = out.permute(0, 2, 1)                 # (B, H, L)
-        return self.final(out)                     # (B, C_out, L)
+        out = out.permute(0, 2, 1)  # (B, H, L)
+        return self.final(out)  # (B, C_out, L)

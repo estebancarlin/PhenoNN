@@ -37,28 +37,27 @@ def _decompose(M2d: np.ndarray):
     L, out_len = M2d.shape
     offset = L - out_len
     j = np.arange(out_len)
-    i_same = offset + j                     # input index of the same day as j
+    i_same = offset + j  # input index of the same day as j
     A = np.abs(M2d)
 
     inst = A[i_same, j]
 
-    cum = np.cumsum(A, axis=0)              # cum[i, j] = Σ_{k<=i} A[k, j]
+    cum = np.cumsum(A, axis=0)  # cum[i, j] = Σ_{k<=i} A[k, j]
     total = cum[-1, j]
     prev = np.where(i_same >= 1, cum[np.clip(i_same - 1, 0, L - 1), j], 0.0)
-    past = prev                            # Σ_{i < i_same}
-    future = total - cum[i_same, j]        # Σ_{i > i_same}
+    past = prev  # Σ_{i < i_same}
+    future = total - cum[i_same, j]  # Σ_{i > i_same}
     return inst, past, future
 
 
 def _plot_pair(ax, inst, past, future, title):
-    x = np.arange(len(inst)) + 1           # day-of-year 1..365
-    ax.plot(x, past, color="tab:blue", lw=1.6,
-            label="passé  Σ|M[i<j, j]|")
-    ax.plot(x, inst, color="tab:red", lw=1.6,
-            label="instantané  |M[j, j]|")
+    x = np.arange(len(inst)) + 1  # day-of-year 1..365
+    ax.plot(x, past, color="tab:blue", lw=1.6, label="passé  Σ|M[i<j, j]|")
+    ax.plot(x, inst, color="tab:red", lw=1.6, label="instantané  |M[j, j]|")
     if np.nanmax(np.abs(future)) > 0:
-        ax.plot(x, future, color="0.6", lw=0.8, ls="--",
-                label="fuite future  Σ|M[i>j, j]|")
+        ax.plot(
+            x, future, color="0.6", lw=0.8, ls="--", label="fuite future  Σ|M[i>j, j]|"
+        )
     ax.set_xlabel("Jour de l'année (dernière année)")
     ax.set_ylabel("|ΔLAI| par unité de perturbation")
     ax.set_xlim(1, len(inst))
@@ -68,15 +67,19 @@ def _plot_pair(ax, inst, past, future, title):
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("matrix", help="Path to <prefix>.npy from stress_sensitivity.")
-    p.add_argument("--output", default="",
-                   help="Output PNG (default: <matrix>_inst_vs_past.png).")
-    p.add_argument("--log", action="store_true",
-                   help="Log-scale the y-axis (past can dwarf instantané).")
-    p.add_argument("--title", default="",
-                   help="Extra title text (e.g. the site/year).")
+    p.add_argument(
+        "--output", default="", help="Output PNG (default: <matrix>_inst_vs_past.png)."
+    )
+    p.add_argument(
+        "--log",
+        action="store_true",
+        help="Log-scale the y-axis (past can dwarf instantané).",
+    )
+    p.add_argument("--title", default="", help="Extra title text (e.g. the site/year).")
     args = p.parse_args()
 
     M = np.load(args.matrix)
@@ -88,28 +91,31 @@ def main():
     suffix = f" — {args.title}" if args.title else f" — {stem}"
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     if M.ndim == 2:
         inst, past, future = _decompose(M)
         fig, ax = plt.subplots(figsize=(10, 5))
-        _plot_pair(ax, inst, past, future,
-                   f"Sensibilité instantanée vs passée{suffix}")
+        _plot_pair(ax, inst, past, future, f"Sensibilité instantanée vs passée{suffix}")
         if args.log:
             ax.set_yscale("log")
         fig.tight_layout()
         fig.savefig(out, dpi=130)
-        print(f"instantané: max={np.nanmax(inst):.3e}  "
-              f"passé: max={np.nanmax(past):.3e}  "
-              f"ratio médian passé/instantané="
-              f"{np.nanmedian(past / np.where(inst > 0, inst, np.nan)):.2f}")
+        print(
+            f"instantané: max={np.nanmax(inst):.3e}  "
+            f"passé: max={np.nanmax(past):.3e}  "
+            f"ratio médian passé/instantané="
+            f"{np.nanmedian(past / np.where(inst > 0, inst, np.nan)):.2f}"
+        )
     else:
         n = M.shape[2]
         ncols = 3
         nrows = (n + ncols - 1) // ncols
-        fig, axes = plt.subplots(nrows, ncols, squeeze=False,
-                                 figsize=(5 * ncols, 3.2 * nrows))
+        fig, axes = plt.subplots(
+            nrows, ncols, squeeze=False, figsize=(5 * ncols, 3.2 * nrows)
+        )
         for k in range(nrows * ncols):
             ax = axes[k // ncols][k % ncols]
             if k >= n:

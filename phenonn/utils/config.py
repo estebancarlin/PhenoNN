@@ -17,9 +17,9 @@ from typing import List
 
 # ── Feature toggles ──────────────────────────────────────────────────────────
 
-add_pheno_features  = False     # GDD/CDD/NCD/Botta — added by preprocess_features.py
-add_cyclic_features = False    # doy_sin / doy_cos — computed at sample time
-add_co2_features    = True     # one CO2 value per year broadcast over the window
+add_pheno_features = False  # GDD/CDD/NCD/Botta — added by preprocess_features.py
+add_cyclic_features = False  # doy_sin / doy_cos — computed at sample time
+add_co2_features = True  # one CO2 value per year broadcast over the window
 
 
 # ── Feature lists ────────────────────────────────────────────────────────────
@@ -28,20 +28,32 @@ add_co2_features    = True     # one CO2 value per year broadcast over the windo
 # Intermediate vars Tdew_mean / sp_mean / Rn_mean are dropped at write time
 # in build_daily_dataset_pixelset.py — they exist only to feed VPD / PET / Rn_tot.
 METEO_BASE: List[str] = [
-    "Tmin", "Tmax", "Tmean",
-    "ssrd_sum", "strd_sum", "tp_sum",
-    "VPD_max", "VPD_mean",
-    "Rn_tot", "PET",
+    "Tmin",
+    "Tmax",
+    "Tmean",
+    "ssrd_sum",
+    "strd_sum",
+    "tp_sum",
+    "VPD_max",
+    "VPD_mean",
+    "Rn_tot",
+    "PET",
 ]
 
 # Thermal phenology features (ORCHIDEE v4.2 onset/gate proxies), all computed
 # from Tmean by phenonn.data_creation.add_pheno_thermal and stored in the SAME
 # ERA5_daily_pixelset_{Y}.nc. Enabled via add_pheno_features above.
 DERIVED_FEATURES: List[str] = [
-    "gdd_0", "gdd_5", "gdd_10",
-    "ncd_temp", "ncd_bor", "ngd",
-    "botta_threshold", "botta_forcing",
-    "t_rising", "t_falling",
+    "gdd_0",
+    "gdd_5",
+    "gdd_10",
+    "ncd_temp",
+    "ncd_bor",
+    "ngd",
+    "botta_threshold",
+    "botta_forcing",
+    "t_rising",
+    "t_falling",
 ]
 
 # Engineered daily features appended to the ERA5 pixelset after the base build,
@@ -51,22 +63,17 @@ DERIVED_FEATURES: List[str] = [
 AUGMENTED_FEATURES: List[str] = ["daylength", "SMI"]
 
 DYNAMIC_FEATURES: List[str] = (
-    METEO_BASE + AUGMENTED_FEATURES
-    + (DERIVED_FEATURES if add_pheno_features else [])
+    METEO_BASE + AUGMENTED_FEATURES + (DERIVED_FEATURES if add_pheno_features else [])
 )
 
-CYCLIC_FEATURES: List[str] = (
-    ["doy_sin", "doy_cos"] if add_cyclic_features else []
-)
+CYCLIC_FEATURES: List[str] = ["doy_sin", "doy_cos"] if add_cyclic_features else []
 
 CO2_FEATURES: List[str] = ["co2"] if add_co2_features else []
 
 PFT_COLS: List[str] = [f"pft{k}_frac" for k in range(1, 16)]
 N_PFT = 15
 
-ALL_FEATURES: List[str] = (
-    DYNAMIC_FEATURES + CYCLIC_FEATURES + CO2_FEATURES + PFT_COLS
-)
+ALL_FEATURES: List[str] = DYNAMIC_FEATURES + CYCLIC_FEATURES + CO2_FEATURES + PFT_COLS
 FEATURE_CHANNELS = len(ALL_FEATURES)
 
 # Index where the PFT block starts in the canonical feature tensor.
@@ -76,12 +83,18 @@ PFT_START = len(DYNAMIC_FEATURES) + len(CYCLIC_FEATURES) + len(CO2_FEATURES)
 # choices of LaiNN/dataset_target_feature.py adapted to the ERA5 names.
 LOG_TRANSFORM_FEATURES = {
     "tp_sum",
-    "SMI",          # 30-day precip-weighted proxy: ≥0 and right-skewed like tp_sum
+    "SMI",  # 30-day precip-weighted proxy: ≥0 and right-skewed like tp_sum
     "ssrd_sum",
     "strd_sum",
-    "VPD_max", "VPD_mean",
-    "gdd_0", "gdd_5", "gdd_10",   # ≥0 accumulators, right-skewed
-    "ncd_temp", "ncd_bor", "ngd", "botta_threshold",
+    "VPD_max",
+    "VPD_mean",
+    "gdd_0",
+    "gdd_5",
+    "gdd_10",  # ≥0 accumulators, right-skewed
+    "ncd_temp",
+    "ncd_bor",
+    "ngd",
+    "botta_threshold",
 }
 # NOTE: daylength is deliberately NOT log-transformed — bounded to 0–24 h and
 # seasonal (not heavy-tailed). Likewise the SIGNED thermal features botta_forcing,
@@ -119,7 +132,7 @@ PFT_NAMES: List[str] = [
 # ── File-naming conventions used by the preprocessing pipeline ───────────────
 
 FEATURES_FNAME = "ERA5_daily_pixelset_{year}.nc"
-TARGETS_FNAME  = "LAI_dekadal_{year}.nc"
-PFT_FNAME      = "PFTmap_{year}.nc"
-VALID_FNAME    = "valid_pixels_{year}.nc"
+TARGETS_FNAME = "LAI_dekadal_{year}.nc"
+PFT_FNAME = "PFTmap_{year}.nc"
+VALID_FNAME = "valid_pixels_{year}.nc"
 SELECTED_PIXELS_FNAME = "selected_pixels.nc"

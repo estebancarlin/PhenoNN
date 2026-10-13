@@ -5,127 +5,86 @@
 # Attribution-NonCommercial-ShareAlike 4.0 International License.
 # To view a copy of this license, visit
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
+
 """
-PhenoNN Command Line Interface
+PhenoNN command-line interface.
 
-Usage examples:
-    # Train LSTM model (per-site CSV format)
-    phenonn train --data_dir ./data/DB/ --type lstm --hidden_size 128
+Usage
+-----
+    phenonn train       Train a model (RAM working-set trainer)
+    phenonn predict     Run inference with a trained checkpoint
+    phenonn --version   Print the package version
+    phenonn --help      Print this help
 
-    # Train on flat CSVs
-    phenonn train-flat --features_csv features.csv --target_csv targets.csv
+Every subcommand forwards the remaining arguments to the underlying
+``python -m`` entry point. For the full list of flags, run, e.g.:
 
-    # Train big model with year-based split
-    phenonn train-big --data_dir ./data/DB/ --type transformer --split_mode year
+    phenonn train --help
+    phenonn predict --help
 
-    # Predict (per-site CSV format)
-    phenonn predict --checkpoint ./runs/exp01/checkpoints/best_model.pth --data_dir ./data/DB/
+Equivalent direct invocations (used by the SLURM job scripts):
 
-    # Predict on flat CSVs
-    phenonn predict-flat --checkpoint ./runs/exp_flat/checkpoints/best_model.pth
-
-    # Show version
-    phenonn --version
+    python -m phenonn.training.train_full_ram  <flags>
+    python -m phenonn.prediction.predict       <flags>
 """
 
 import sys
+
 from .version import __version__
 
 
-def main():
-    # Handle version request
+_HELP = f"""\
+PhenoNN version {__version__}
+
+Usage: phenonn <command> [options]
+
+Commands:
+  train       Train a model (RAM working-set trainer, pixelset NetCDF)
+  predict     Run inference with a trained checkpoint
+
+Run 'phenonn <command> --help' for the full list of options.
+"""
+
+
+def _dispatch(module_path: str, argv: list) -> int:
+    """Import `module_path`, run its `main()` with `argv` as sys.argv.
+
+    `argv` must already include the program name at index 0, matching
+    the layout the underlying argparse parsers expect.
+    """
+    import importlib
+
+    module = importlib.import_module(module_path)
+    original_argv = sys.argv
+    sys.argv = argv
+    try:
+        module.main()
+    finally:
+        sys.argv = original_argv
+    return 0
+
+
+def main() -> int:
     if "--version" in sys.argv or "-V" in sys.argv:
         print(f"phenonn {__version__}")
-        return
+        return 0
 
-    # Handle no arguments
-    if len(sys.argv) == 1:
-        print(f"PhenoNN version {__version__}")
-        print("Usage: phenonn <command> [options]")
-        print("\nCommands:")
-        print("  train         Train model on per-site CSVs")
-        print("  train-big     Train big model with year-based split")
-        print("  train-flat    Train model on flat CSVs")
-        print("  predict       Run predictions on per-site CSVs")
-        print("  predict-flat  Run predictions on flat CSVs")
-        print("\nRun 'phenonn <command> --help' for command-specific options")
-        return
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print(_HELP)
+        return 0
 
-    # Get the command (first argument after script name)
     command = sys.argv[1]
-
-    # Remove the 'phenonn' and command from argv, keep rest for subcommand
-    # But preserve argv[0] as the script name for the subcommand
     subcommand_argv = [sys.argv[0]] + sys.argv[2:]
 
-    # Dispatch to appropriate module, passing through all arguments
     if command == "train":
-        from phenonn.training.train import run_training
+        return _dispatch("phenonn.training.train_full_ram", subcommand_argv)
+    if command == "predict":
+        return _dispatch("phenonn.prediction.predict", subcommand_argv)
 
-        # Replace sys.argv for the subcommand
-        original_argv = sys.argv
-        sys.argv = subcommand_argv
-        try:
-            run_training()
-        finally:
-            sys.argv = original_argv
-
-    elif command == "train-flat":
-        from phenonn.training.train_flat import run_training_flat
-
-        original_argv = sys.argv
-        sys.argv = subcommand_argv
-        try:
-            run_training_flat()
-        finally:
-            sys.argv = original_argv
-
-    elif command == "train-big":
-        from phenonn.training.train_big import run_training_big
-
-        original_argv = sys.argv
-        sys.argv = subcommand_argv
-        try:
-            run_training_big()
-        finally:
-            sys.argv = original_argv
-
-    elif command == "predict":
-        from phenonn.prediction.predict import run_prediction
-
-        original_argv = sys.argv
-        sys.argv = subcommand_argv
-        try:
-            run_prediction()
-        finally:
-            sys.argv = original_argv
-
-    elif command == "predict-flat":
-        from phenonn.prediction.predict_flat import run_prediction_flat
-
-        original_argv = sys.argv
-        sys.argv = subcommand_argv
-        try:
-            run_prediction_flat()
-        finally:
-            sys.argv = original_argv
-
-    elif command in ["--help", "-h"]:
-        print(f"PhenoNN version {__version__}")
-        print("Usage: phenonn <command> [options]")
-        print("\nCommands:")
-        print("  train         Train model on per-site CSVs")
-        print("  train-flat    Train model on flat CSVs")
-        print("  train-big     Train big model with year-based split")
-        print("  predict       Run predictions on per-site CSVs")
-        print("  predict-flat  Run predictions on flat CSVs")
-        print("\nRun 'phenonn <command> --help' for command-specific options")
-
-    else:
-        print(f"Unknown command: {command}")
-        print("Run 'phenonn --help' for usage")
-        sys.exit(1)
+    print(f"Unknown command: {command}", file=sys.stderr)
+    print(_HELP, file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

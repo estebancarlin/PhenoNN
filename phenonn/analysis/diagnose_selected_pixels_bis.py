@@ -98,6 +98,7 @@ SITE_CHUNK = 200_000
 # Reader child
 # ===========================================================================
 
+
 def _pft_array(dp):
     """
     Return:
@@ -115,19 +116,13 @@ def _pft_array(dp):
         da = dp["maxvegetfrac"]
 
         if "time_counter" in da.dims:
-            da = da.isel(
-                time_counter=0,
-                drop=True
-            )
+            da = da.isel(time_counter=0, drop=True)
 
     else:
         cand = [
             v
             for v in dp.data_vars
-            if (
-                ("pft" in dp[v].dims or "veget" in dp[v].dims)
-                and "site" in dp[v].dims
-            )
+            if (("pft" in dp[v].dims or "veget" in dp[v].dims) and "site" in dp[v].dims)
         ]
 
         if not cand:
@@ -140,17 +135,10 @@ def _pft_array(dp):
 
     pdim = "pft" if "pft" in da.dims else "veget"
 
-    fr = da.transpose(
-        pdim,
-        "site"
-    ).values.astype(
-        np.float32
-    )
+    fr = da.transpose(pdim, "site").values.astype(np.float32)
 
     if "site_id" in dp:
-        sid = np.asarray(
-            dp["site_id"].values
-        ).astype(str)
+        sid = np.asarray(dp["site_id"].values).astype(str)
     else:
         sid = None
 
@@ -169,28 +157,18 @@ def _align(fr_src, sid_pft, sid_sel):
 
     n_pft = fr_src.shape[0]
 
-    out = np.full(
-        (n_pft, sid_sel.size),
-        np.nan,
-        dtype=np.float32
-    )
+    out = np.full((n_pft, sid_sel.size), np.nan, dtype=np.float32)
 
     if sid_pft is not None:
-
-        col = {
-            s: i
-            for i, s in enumerate(sid_pft)
-        }
+        col = {s: i for i, s in enumerate(sid_pft)}
 
         for j, s in enumerate(sid_sel):
-
             i = col.get(s)
 
             if i is not None:
                 out[:, j] = fr_src[:, i]
 
     else:
-
         if fr_src.shape[1] != sid_sel.size:
             raise ValueError(
                 f"PFT file has no site_id and its site count "
@@ -211,6 +189,7 @@ def _align(fr_src, sid_pft, sid_sel):
 # another libhdf5 into the same child process.
 # ---------------------------------------------------------------------------
 
+
 def read_meta(sel_path, npz):
     """
     Read ONLY selected_pixels.nc.
@@ -225,38 +204,17 @@ def read_meta(sel_path, npz):
 
     import xarray as xr
 
-    with xr.open_dataset(
-        sel_path,
-        engine="netcdf4"
-    ) as ds:
+    with xr.open_dataset(sel_path, engine="netcdf4") as ds:
+        lat = np.asarray(ds["latitude"].values, dtype=float)
 
-        lat = np.asarray(
-            ds["latitude"].values,
-            dtype=float
-        )
+        lon = np.asarray(ds["longitude"].values, dtype=float)
 
-        lon = np.asarray(
-            ds["longitude"].values,
-            dtype=float
-        )
-
-        sid_sel = np.asarray(
-            ds["site_id"].values
-        ).astype(str)
+        sid_sel = np.asarray(ds["site_id"].values).astype(str)
 
     # Convert 0..360 longitude to -180..180.
-    lon = np.where(
-        lon > 180.0,
-        lon - 360.0,
-        lon
-    )
+    lon = np.where(lon > 180.0, lon - 360.0, lon)
 
-    np.savez(
-        npz,
-        lon=lon,
-        lat=lat,
-        sid_sel=sid_sel
-    )
+    np.savez(npz, lon=lon, lat=lat, sid_sel=sid_sel)
 
     sys.stdout.flush()
     sys.stderr.flush()
@@ -276,35 +234,18 @@ def read_year(pft_path, meta_npz, npz):
 
     import xarray as xr
 
-    meta = np.load(
-        meta_npz,
-        allow_pickle=False
-    )
+    meta = np.load(meta_npz, allow_pickle=False)
 
-    sid_sel = np.asarray(
-        meta["sid_sel"]
-    ).astype(str)
+    sid_sel = np.asarray(meta["sid_sel"]).astype(str)
 
     del meta
 
-    with xr.open_dataset(
-        pft_path,
-        engine="netcdf4",
-        decode_times=False
-    ) as dp:
-
+    with xr.open_dataset(pft_path, engine="netcdf4", decode_times=False) as dp:
         fr_src, sid_pft = _pft_array(dp)
 
-    fr = _align(
-        fr_src,
-        sid_pft,
-        sid_sel
-    )
+    fr = _align(fr_src, sid_pft, sid_sel)
 
-    np.savez(
-        npz,
-        fr=fr
-    )
+    np.savez(npz, fr=fr)
 
     sys.stdout.flush()
     sys.stderr.flush()
@@ -317,17 +258,15 @@ def read_year(pft_path, meta_npz, npz):
 # Plotting process
 # ===========================================================================
 
+
 def _try_cartopy():
-
     try:
-
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
 
         return True, ccrs, cfeature
 
     except ImportError:
-
         print(
             "[warn] cartopy not installed — no coastlines "
             "(`pip install cartopy`). Plain lon/lat grids."
@@ -336,60 +275,31 @@ def _try_cartopy():
         return False, None, None
 
 
-def _new_axes(
-    fig,
-    spec,
-    have_cartopy,
-    ccrs=None,
-    cfeature=None
-):
+def _new_axes(fig, spec, have_cartopy, ccrs=None, cfeature=None):
     """
     Create a GeoAxes or regular lon/lat axes.
     """
 
     if have_cartopy:
-
-        ax = fig.add_subplot(
-            spec,
-            projection=ccrs.PlateCarree()
-        )
+        ax = fig.add_subplot(spec, projection=ccrs.PlateCarree())
 
         ax.set_global()
 
-        ax.coastlines(
-            linewidth=0.4
-        )
+        ax.coastlines(linewidth=0.4)
 
-        ax.add_feature(
-            cfeature.BORDERS,
-            linewidth=0.15,
-            alpha=0.3
-        )
+        ax.add_feature(cfeature.BORDERS, linewidth=0.15, alpha=0.3)
 
-        return ax, {
-            "transform": ccrs.PlateCarree()
-        }
+        return ax, {"transform": ccrs.PlateCarree()}
 
     ax = fig.add_subplot(spec)
 
-    ax.set_xlim(
-        -180,
-        180
-    )
+    ax.set_xlim(-180, 180)
 
-    ax.set_ylim(
-        -90,
-        90
-    )
+    ax.set_ylim(-90, 90)
 
     ax.set_aspect("equal")
 
-    ax.grid(
-        True,
-        linewidth=0.2,
-        alpha=0.3,
-        linestyle="--"
-    )
+    ax.grid(True, linewidth=0.2, alpha=0.3, linestyle="--")
 
     return ax, {}
 
@@ -407,57 +317,28 @@ def _dominant_purity(fr_mean):
         has_data
     """
 
-    fm = np.where(
-        np.isfinite(fr_mean),
-        fr_mean,
-        -np.inf
-    )
+    fm = np.where(np.isfinite(fr_mean), fr_mean, -np.inf)
 
-    dominant = np.argmax(
-        fm,
-        axis=0
-    )
+    dominant = np.argmax(fm, axis=0)
 
-    purity = np.max(
-        fm,
-        axis=0
-    )
+    purity = np.max(fm, axis=0)
 
-    has = np.isfinite(
-        fr_mean
-    ).any(
-        axis=0
-    )
+    has = np.isfinite(fr_mean).any(axis=0)
 
-    purity = np.where(
-        has,
-        purity,
-        np.nan
-    )
+    purity = np.where(has, purity, np.nan)
 
     return dominant, purity, has
 
 
 def _pft_colors():
-
     import matplotlib.pyplot as plt
 
-    cmap = plt.get_cmap(
-        "tab20",
-        N_PFT
-    )
+    cmap = plt.get_cmap("tab20", N_PFT)
 
-    return cmap, [
-        cmap(k)
-        for k in range(N_PFT)
-    ]
+    return cmap, [cmap(k) for k in range(N_PFT)]
 
 
-def _legend(
-    ax,
-    colors
-):
-
+def _legend(ax, colors):
     from matplotlib.lines import Line2D
 
     handles = [
@@ -469,7 +350,7 @@ def _legend(
             markersize=5,
             markerfacecolor=colors[k],
             markeredgecolor="none",
-            label=f"{k + 1}. {PFT_NAMES[k]}"
+            label=f"{k + 1}. {PFT_NAMES[k]}",
         )
         for k in range(N_PFT)
     ]
@@ -480,40 +361,23 @@ def _legend(
         bbox_to_anchor=(1.01, 0.5),
         fontsize=6,
         frameon=False,
-        title="PFT (majoritaire)"
+        title="PFT (majoritaire)",
     )
 
 
-def _map_dominant(
-    d,
-    args,
-    hc,
-    ccrs,
-    cfeature
-):
-
+def _map_dominant(d, args, hc, ccrs, cfeature):
     import matplotlib.pyplot as plt
 
     lon = d["lon"]
     lat = d["lat"]
 
-    dominant, purity, has = _dominant_purity(
-        d["fr_mean"]
-    )
+    dominant, purity, has = _dominant_purity(d["fr_mean"])
 
     cmap, colors = _pft_colors()
 
-    fig = plt.figure(
-        figsize=(13, 6)
-    )
+    fig = plt.figure(figsize=(13, 6))
 
-    ax, kw = _new_axes(
-        fig,
-        111,
-        hc,
-        ccrs,
-        cfeature
-    )
+    ax, kw = _new_axes(fig, 111, hc, ccrs, cfeature)
 
     ax.scatter(
         lon[has],
@@ -524,7 +388,7 @@ def _map_dominant(
         vmax=N_PFT - 0.5,
         s=args.markersize,
         linewidths=0,
-        **kw
+        **kw,
     )
 
     ax.set_title(
@@ -533,55 +397,28 @@ def _map_dominant(
         f"moyenne {d['years'][0]}–{d['years'][-1]})"
     )
 
-    _legend(
-        ax,
-        colors
-    )
+    _legend(ax, colors)
 
-    _save(
-        fig,
-        f"{args._stem}_dominant_pft.png",
-        args.dpi
-    )
+    _save(fig, f"{args._stem}_dominant_pft.png", args.dpi)
 
 
-def _map_pure(
-    d,
-    args,
-    hc,
-    ccrs,
-    cfeature
-):
-
+def _map_pure(d, args, hc, ccrs, cfeature):
     import matplotlib.pyplot as plt
 
     lon = d["lon"]
     lat = d["lat"]
 
-    dominant, purity, has = _dominant_purity(
-        d["fr_mean"]
-    )
+    dominant, purity, has = _dominant_purity(d["fr_mean"])
 
     thr = args.pure_threshold
 
-    m = (
-        has
-        & (purity > thr)
-    )
+    m = has & (purity > thr)
 
     cmap, colors = _pft_colors()
 
-    fig = plt.figure(
-        figsize=(13, 6)
-    )
+    fig = plt.figure(figsize=(13, 6))
 
-    ax, kw = _new_axes(
-        fig,
-        111,
-        hc,
-        ccrs,
-        cfeature
-    )
+    ax, kw = _new_axes(fig, 111, hc, ccrs, cfeature)
 
     ax.scatter(
         lon[m],
@@ -592,225 +429,96 @@ def _map_pure(
         vmax=N_PFT - 0.5,
         s=args.markersize,
         linewidths=0,
-        **kw
+        **kw,
     )
 
     ax.set_title(
-        f"Cellules à fraction PFT > {thr:g} "
-        f"({m.sum():,} / {has.sum():,} cellules)"
+        f"Cellules à fraction PFT > {thr:g} " f"({m.sum():,} / {has.sum():,} cellules)"
     )
 
-    _legend(
-        ax,
-        colors
-    )
+    _legend(ax, colors)
 
-    _save(
-        fig,
-        f"{args._stem}_pure_gt"
-        f"{int(round(thr * 100)):02d}.png",
-        args.dpi
-    )
+    _save(fig, f"{args._stem}_pure_gt" f"{int(round(thr * 100)):02d}.png", args.dpi)
 
 
-def _purity_table(
-    d,
-    args
-):
-
+def _purity_table(d, args):
     import matplotlib.pyplot as plt
 
     fr_mean = d["fr_mean"]
 
     counts = np.array(
-        [
-            [
-                int(
-                    np.nansum(
-                        fr_mean[k] > t
-                    )
-                )
-                for t in THRESHOLDS
-            ]
-            for k in range(N_PFT)
-        ],
-        dtype=np.int64
+        [[int(np.nansum(fr_mean[k] > t)) for t in THRESHOLDS] for k in range(N_PFT)],
+        dtype=np.int64,
     )
 
-    totals = counts.sum(
-        axis=0
-    )
+    totals = counts.sum(axis=0)
 
-    hdr = [
-        "PFT"
-    ] + [
-        f">{t:g}"
-        for t in THRESHOLDS
-    ]
+    hdr = ["PFT"] + [f">{t:g}" for t in THRESHOLDS]
 
-    lines = [
-        "  ".join(
-            f"{h:>16}" if i == 0
-            else f"{h:>8}"
-            for i, h in enumerate(hdr)
-        )
-    ]
+    lines = ["  ".join(f"{h:>16}" if i == 0 else f"{h:>8}" for i, h in enumerate(hdr))]
 
     for k in range(N_PFT):
-
-        row = [
-            f"{k + 1}. {PFT_NAMES[k]}"
-        ] + [
-            str(c)
-            for c in counts[k]
-        ]
+        row = [f"{k + 1}. {PFT_NAMES[k]}"] + [str(c) for c in counts[k]]
 
         lines.append(
-            "  ".join(
-                f"{v:>16}" if i == 0
-                else f"{v:>8}"
-                for i, v in enumerate(row)
-            )
+            "  ".join(f"{v:>16}" if i == 0 else f"{v:>8}" for i, v in enumerate(row))
         )
 
     lines.append(
         "  ".join(
-            f"{v:>16}" if i == 0
-            else f"{v:>8}"
-            for i, v in enumerate(
-                ["TOTAL"]
-                + [
-                    str(t)
-                    for t in totals
-                ]
-            )
+            f"{v:>16}" if i == 0 else f"{v:>8}"
+            for i, v in enumerate(["TOTAL"] + [str(t) for t in totals])
         )
     )
 
     table_txt = "\n".join(lines)
 
-    print(
-        "\n== Pureté : nb de cellules "
-        "avec fraction PFT > seuil =="
-    )
+    print("\n== Pureté : nb de cellules " "avec fraction PFT > seuil ==")
 
     print(table_txt)
 
     # CSV
-    csv_path = (
-        f"{args._stem}_purity_table.csv"
-    )
+    csv_path = f"{args._stem}_purity_table.csv"
 
-    with open(
-        csv_path,
-        "w"
-    ) as f:
-
-        f.write(
-            ",".join(hdr)
-            + "\n"
-        )
+    with open(csv_path, "w") as f:
+        f.write(",".join(hdr) + "\n")
 
         for k in range(N_PFT):
-
             f.write(
-                ",".join(
-                    [
-                        f"{k + 1}. {PFT_NAMES[k]}"
-                    ]
-                    + [
-                        str(c)
-                        for c in counts[k]
-                    ]
-                )
+                ",".join([f"{k + 1}. {PFT_NAMES[k]}"] + [str(c) for c in counts[k]])
                 + "\n"
             )
 
-        f.write(
-            ",".join(
-                ["TOTAL"]
-                + [
-                    str(t)
-                    for t in totals
-                ]
-            )
-            + "\n"
-        )
+        f.write(",".join(["TOTAL"] + [str(t) for t in totals]) + "\n")
 
-    print(
-        f"[ok] {csv_path}"
-    )
+    print(f"[ok] {csv_path}")
 
     # PNG table
-    fig, ax = plt.subplots(
-        figsize=(
-            7,
-            0.35 * (N_PFT + 3)
-        )
-    )
+    fig, ax = plt.subplots(figsize=(7, 0.35 * (N_PFT + 3)))
 
     ax.axis("off")
 
     cell = [
-        [
-            f"{k + 1}. {PFT_NAMES[k]}"
-        ]
-        + [
-            f"{c:,}"
-            for c in counts[k]
-        ]
+        [f"{k + 1}. {PFT_NAMES[k]}"] + [f"{c:,}" for c in counts[k]]
         for k in range(N_PFT)
     ]
 
-    cell.append(
-        ["TOTAL"]
-        + [
-            f"{t:,}"
-            for t in totals
-        ]
-    )
+    cell.append(["TOTAL"] + [f"{t:,}" for t in totals])
 
-    tbl = ax.table(
-        cellText=cell,
-        colLabels=hdr,
-        loc="center",
-        cellLoc="center"
-    )
+    tbl = ax.table(cellText=cell, colLabels=hdr, loc="center", cellLoc="center")
 
-    tbl.auto_set_font_size(
-        False
-    )
+    tbl.auto_set_font_size(False)
 
-    tbl.set_fontsize(
-        8
-    )
+    tbl.set_fontsize(8)
 
-    tbl.scale(
-        1,
-        1.3
-    )
+    tbl.scale(1, 1.3)
 
-    ax.set_title(
-        "Nb de cellules par PFT "
-        "avec pureté > seuil",
-        fontsize=10
-    )
+    ax.set_title("Nb de cellules par PFT " "avec pureté > seuil", fontsize=10)
 
-    _save(
-        fig,
-        f"{args._stem}_purity_table.png",
-        args.dpi
-    )
+    _save(fig, f"{args._stem}_purity_table.png", args.dpi)
 
 
-def _map_density(
-    d,
-    args,
-    hc,
-    ccrs,
-    cfeature
-):
-
+def _map_density(d, args, hc, ccrs, cfeature):
     import matplotlib.pyplot as plt
 
     lon = d["lon"]
@@ -818,43 +526,17 @@ def _map_density(
 
     b = args.block_deg
 
-    xe = np.arange(
-        -180,
-        180 + b,
-        b
-    )
+    xe = np.arange(-180, 180 + b, b)
 
-    ye = np.arange(
-        -90,
-        90 + b,
-        b
-    )
+    ye = np.arange(-90, 90 + b, b)
 
-    H, _, _ = np.histogram2d(
-        lon,
-        lat,
-        bins=[
-            xe,
-            ye
-        ]
-    )
+    H, _, _ = np.histogram2d(lon, lat, bins=[xe, ye])
 
-    fig = plt.figure(
-        figsize=(14, 7)
-    )
+    fig = plt.figure(figsize=(14, 7))
 
-    ax, kw = _new_axes(
-        fig,
-        111,
-        hc,
-        ccrs,
-        cfeature
-    )
+    ax, kw = _new_axes(fig, 111, hc, ccrs, cfeature)
 
-    Hm = np.ma.masked_where(
-        H.T == 0,
-        H.T
-    )
+    Hm = np.ma.masked_where(H.T == 0, H.T)
 
     mesh = ax.pcolormesh(
         xe,
@@ -862,43 +544,22 @@ def _map_density(
         Hm,
         cmap="YlOrRd",
         shading="flat",
-        **(
-            {
-                "transform": ccrs.PlateCarree()
-            }
-            if hc
-            else {}
-        )
+        **({"transform": ccrs.PlateCarree()} if hc else {}),
     )
 
-    fig.colorbar(
-        mesh,
-        ax=ax,
-        shrink=0.6,
-        label="cellules / bloc"
-    )
+    fig.colorbar(mesh, ax=ax, shrink=0.6, label="cellules / bloc")
 
     # Annotate each non-empty block.
     for i in range(H.shape[0]):
-
         for j in range(H.shape[1]):
-
-            n = int(
-                H[i, j]
-            )
+            n = int(H[i, j])
 
             if n == 0:
                 continue
 
-            xc = 0.5 * (
-                xe[i]
-                + xe[i + 1]
-            )
+            xc = 0.5 * (xe[i] + xe[i + 1])
 
-            yc = 0.5 * (
-                ye[j]
-                + ye[j + 1]
-            )
+            yc = 0.5 * (ye[j] + ye[j + 1])
 
             ax.text(
                 xc,
@@ -908,40 +569,16 @@ def _map_density(
                 va="center",
                 fontsize=5,
                 color="black",
-                **(
-                    {
-                        "transform":
-                        ccrs.PlateCarree()
-                    }
-                    if hc
-                    else {}
-                )
+                **({"transform": ccrs.PlateCarree()} if hc else {}),
             )
 
     if hc:
-
-        ax.gridlines(
-            xlocs=xe,
-            ylocs=ye,
-            linewidth=0.2,
-            color="gray",
-            alpha=0.4
-        )
+        ax.gridlines(xlocs=xe, ylocs=ye, linewidth=0.2, color="gray", alpha=0.4)
 
     else:
+        ax.set_xticks(xe[:: max(1, len(xe) // 12)])
 
-        ax.set_xticks(
-            xe[
-                ::max(
-                    1,
-                    len(xe) // 12
-                )
-            ]
-        )
-
-        ax.set_yticks(
-            ye
-        )
+        ax.set_yticks(ye)
 
     ax.set_title(
         f"Densité de cellules par bloc "
@@ -949,100 +586,51 @@ def _map_density(
         f"(total {int(H.sum()):,} cellules)"
     )
 
-    _save(
-        fig,
-        f"{args._stem}_density_{int(b)}deg.png",
-        args.dpi
-    )
+    _save(fig, f"{args._stem}_density_{int(b)}deg.png", args.dpi)
 
 
-def _save(
-    fig,
-    out_path,
-    dpi
-):
-
+def _save(fig, out_path, dpi):
     import matplotlib.pyplot as plt
 
-    os.makedirs(
-        os.path.dirname(
-            os.path.abspath(out_path)
-        ),
-        exist_ok=True
-    )
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
 
-    fig.savefig(
-        out_path,
-        dpi=dpi,
-        bbox_inches="tight"
-    )
+    fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
 
     plt.close(fig)
 
-    print(
-        f"[ok] {out_path}"
-    )
+    print(f"[ok] {out_path}")
 
 
-def render(
-    d,
-    args
-):
-
+def render(d, args):
     import matplotlib
 
     matplotlib.use("Agg")
 
     hc, ccrs, cfeature = _try_cartopy()
 
-    _map_dominant(
-        d,
-        args,
-        hc,
-        ccrs,
-        cfeature
-    )
+    _map_dominant(d, args, hc, ccrs, cfeature)
 
-    _map_pure(
-        d,
-        args,
-        hc,
-        ccrs,
-        cfeature
-    )
+    _map_pure(d, args, hc, ccrs, cfeature)
 
-    _purity_table(
-        d,
-        args
-    )
+    _purity_table(d, args)
 
-    _map_density(
-        d,
-        args,
-        hc,
-        ccrs,
-        cfeature
-    )
+    _map_density(d, args, hc, ccrs, cfeature)
 
 
 # ===========================================================================
 # CLI
 # ===========================================================================
 
-def parse_args():
 
+def parse_args():
     p = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     p.add_argument(
         "--selected_pixels",
         required=True,
-        help=(
-            "selected_pixels*.nc "
-            "(site dim: latitude/longitude/site_id)."
-        )
+        help=("selected_pixels*.nc " "(site dim: latitude/longitude/site_id)."),
     )
 
     p.add_argument(
@@ -1051,93 +639,49 @@ def parse_args():
         help=(
             "Folder of PFTmap_{Y}.nc pixelsets "
             "(pft_frac(pft, site)); joined to sites by site_id."
-        )
+        ),
     )
 
-    p.add_argument(
-        "--year_start",
-        type=int,
-        required=True
-    )
+    p.add_argument("--year_start", type=int, required=True)
 
-    p.add_argument(
-        "--year_end",
-        type=int,
-        required=True
-    )
+    p.add_argument("--year_end", type=int, required=True)
 
     p.add_argument(
         "--output",
-        default="selected_pixels_diag.png",
-        help=(
-            "Output stem; the four figures derive "
-            "their names from it."
-        )
+        default="runs/selected_pixels_diag.png",
+        help=("Output stem; the four figures derive " "their names from it."),
     )
 
     p.add_argument(
         "--pure_threshold",
         type=float,
         default=0.6,
-        help=(
-            "Fraction threshold for the 'pure' map "
-            "(default 0.6)."
-        )
+        help=("Fraction threshold for the 'pure' map " "(default 0.6)."),
     )
 
     p.add_argument(
         "--block_deg",
         type=float,
         default=10.0,
-        help=(
-            "Block size in degrees for the density "
-            "map (default 10)."
-        )
+        help=("Block size in degrees for the density " "map (default 10)."),
     )
 
-    p.add_argument(
-        "--markersize",
-        type=float,
-        default=4.0
-    )
+    p.add_argument("--markersize", type=float, default=4.0)
 
-    p.add_argument(
-        "--dpi",
-        type=int,
-        default=150
-    )
+    p.add_argument("--dpi", type=int, default=150)
 
     # Hidden reader-child arguments.
-    p.add_argument(
-        "--_read_meta",
-        default="",
-        help=argparse.SUPPRESS
-    )
+    p.add_argument("--_read_meta", default="", help=argparse.SUPPRESS)
 
-    p.add_argument(
-        "--_read_year",
-        type=int,
-        default=0,
-        help=argparse.SUPPRESS
-    )
+    p.add_argument("--_read_year", type=int, default=0, help=argparse.SUPPRESS)
 
-    p.add_argument(
-        "--_year_npz",
-        default="",
-        help=argparse.SUPPRESS
-    )
+    p.add_argument("--_year_npz", default="", help=argparse.SUPPRESS)
 
-    p.add_argument(
-        "--_meta_npz",
-        default="",
-        help=argparse.SUPPRESS
-    )
+    p.add_argument("--_meta_npz", default="", help=argparse.SUPPRESS)
 
     args = p.parse_args()
 
-    args._stem = os.path.splitext(
-        args.output
-    )[0]
+    args._stem = os.path.splitext(args.output)[0]
 
     return args
 
@@ -1146,10 +690,8 @@ def parse_args():
 # Subprocess launcher
 # ===========================================================================
 
-def _spawn(
-    args,
-    extra
-):
+
+def _spawn(args, extra):
     """
     Run this file again as a throwaway child.
     """
@@ -1158,25 +700,19 @@ def _spawn(
         [
             sys.executable,
             os.path.abspath(__file__),
-
             "--selected_pixels",
             args.selected_pixels,
-
             "--pft_dir",
             args.pft_dir,
-
             "--year_start",
             str(args.year_start),
-
             "--year_end",
             str(args.year_end),
-
             "--output",
             args.output,
-
             *extra,
         ],
-        check=True
+        check=True,
     )
 
 
@@ -1184,8 +720,8 @@ def _spawn(
 # Main
 # ===========================================================================
 
-def main():
 
+def main():
     args = parse_args()
 
     # -----------------------------------------------------------------------
@@ -1193,11 +729,7 @@ def main():
     # -----------------------------------------------------------------------
 
     if args._read_meta:
-
-        read_meta(
-            args.selected_pixels,
-            args._read_meta
-        )
+        read_meta(args.selected_pixels, args._read_meta)
 
         return
 
@@ -1206,19 +738,9 @@ def main():
     # -----------------------------------------------------------------------
 
     if args._read_year:
+        pft_path = os.path.join(args.pft_dir, PFT_FNAME.format(year=args._read_year))
 
-        pft_path = os.path.join(
-            args.pft_dir,
-            PFT_FNAME.format(
-                year=args._read_year
-            )
-        )
-
-        read_year(
-            pft_path,
-            args._meta_npz,
-            args._year_npz
-        )
+        read_year(pft_path, args._meta_npz, args._year_npz)
 
         return
 
@@ -1229,33 +751,18 @@ def main():
     # This process never imports xarray/netCDF4.
     # -----------------------------------------------------------------------
 
-    tmpdir = tempfile.mkdtemp(
-        prefix="diag_selpix_"
-    )
+    tmpdir = tempfile.mkdtemp(prefix="diag_selpix_")
 
-    meta_npz = os.path.join(
-        tmpdir,
-        "meta.npz"
-    )
+    meta_npz = os.path.join(tmpdir, "meta.npz")
 
     try:
-
         # ---------------------------------------------------------------
         # Read selected_pixels in its own process.
         # ---------------------------------------------------------------
 
-        _spawn(
-            args,
-            [
-                "--_read_meta",
-                meta_npz
-            ]
-        )
+        _spawn(args, ["--_read_meta", meta_npz])
 
-        meta = np.load(
-            meta_npz,
-            allow_pickle=False
-        )
+        meta = np.load(meta_npz, allow_pickle=False)
 
         lon = meta["lon"]
         lat = meta["lat"]
@@ -1263,11 +770,7 @@ def main():
 
         n_site = sid_sel.size
 
-        print(
-            f"[read] selected_pixels: "
-            f"{n_site:,} sites",
-            flush=True
-        )
+        print(f"[read] selected_pixels: " f"{n_site:,} sites", flush=True)
 
         del meta
 
@@ -1292,43 +795,21 @@ def main():
 
         years = []
 
-        n_years_requested = (
-            args.year_end
-            - args.year_start
-            + 1
-        )
+        n_years_requested = args.year_end - args.year_start + 1
 
-        for i, y in enumerate(
-            range(
-                args.year_start,
-                args.year_end + 1
-            ),
-            start=1
-        ):
+        for i, y in enumerate(range(args.year_start, args.year_end + 1), start=1):
+            pft_path = os.path.join(args.pft_dir, PFT_FNAME.format(year=y))
 
-            pft_path = os.path.join(
-                args.pft_dir,
-                PFT_FNAME.format(
-                    year=y
-                )
-            )
-
-            if not os.path.exists(
-                pft_path
-            ):
-
+            if not os.path.exists(pft_path):
                 print(
                     f"[warn] missing PFTmap_{y}.nc "
                     f"— skipped [{i}/{n_years_requested}]",
-                    flush=True
+                    flush=True,
                 )
 
                 continue
 
-            year_npz = os.path.join(
-                tmpdir,
-                f"year_{y}.npz"
-            )
+            year_npz = os.path.join(tmpdir, f"year_{y}.npz")
 
             # -----------------------------------------------------------
             # Read the year's PFT file in a throwaway process.
@@ -1339,13 +820,11 @@ def main():
                 [
                     "--_read_year",
                     str(y),
-
                     "--_year_npz",
                     year_npz,
-
                     "--_meta_npz",
                     meta_npz,
-                ]
+                ],
             )
 
             # -----------------------------------------------------------
@@ -1358,22 +837,13 @@ def main():
             # ≈ 99 MB float32.
             # -----------------------------------------------------------
 
-            fr = np.load(
-                year_npz,
-                allow_pickle=False
-            )["fr"]
+            fr = np.load(year_npz, allow_pickle=False)["fr"]
 
-            os.remove(
-                year_npz
-            )
+            os.remove(year_npz)
 
             years.append(y)
 
-            print(
-                f"[read] {y} "
-                f"[{i}/{n_years_requested}]",
-                flush=True
-            )
+            print(f"[read] {y} " f"[{i}/{n_years_requested}]", flush=True)
 
             # -----------------------------------------------------------
             # If the requested period contains exactly ONE year,
@@ -1383,7 +853,6 @@ def main():
             # -----------------------------------------------------------
 
             if n_years_requested == 1:
-
                 single_year_fr = fr
 
                 continue
@@ -1393,20 +862,11 @@ def main():
             # -----------------------------------------------------------
 
             if sum_ is None:
+                sum_ = np.zeros_like(fr, dtype=np.float32)
 
-                sum_ = np.zeros_like(
-                    fr,
-                    dtype=np.float32
-                )
+                cnt = np.zeros_like(fr, dtype=np.float32)
 
-                cnt = np.zeros_like(
-                    fr,
-                    dtype=np.float32
-                )
-
-            finite = np.isfinite(
-                fr
-            )
+            finite = np.isfinite(fr)
 
             # -----------------------------------------------------------
             # Instead of:
@@ -1431,7 +891,6 @@ def main():
         # -----------------------------------------------------------------
 
         if not years:
-
             raise SystemExit(
                 f"No PFTmap_*.nc in {args.pft_dir} "
                 f"for {args.year_start}..{args.year_end}."
@@ -1442,12 +901,7 @@ def main():
         # -----------------------------------------------------------------
 
         if len(years) == 1:
-
-            print(
-                f"[agg] one year ({years[0]}): "
-                f"no aggregation needed",
-                flush=True
-            )
+            print(f"[agg] one year ({years[0]}): " f"no aggregation needed", flush=True)
 
             fr_mean = single_year_fr
 
@@ -1458,69 +912,37 @@ def main():
         # -----------------------------------------------------------------
 
         else:
-
             print(
                 f"[agg] averaging "
                 f"{len(years)} years over "
                 f"{n_site:,} sites "
                 f"in chunks of {SITE_CHUNK:,}…",
-                flush=True
+                flush=True,
             )
 
             n_pft = sum_.shape[0]
 
-            fr_mean = np.empty(
-                (
-                    n_pft,
-                    n_site
-                ),
-                dtype=np.float32
-            )
+            fr_mean = np.empty((n_pft, n_site), dtype=np.float32)
 
             # -----------------------------------------------------------
             # Divide in chunks to avoid constructing a huge temporary
             # (15, 1.65M).
             # -----------------------------------------------------------
 
-            for a in range(
-                0,
-                n_site,
-                SITE_CHUNK
-            ):
+            for a in range(0, n_site, SITE_CHUNK):
+                b = min(a + SITE_CHUNK, n_site)
 
-                b = min(
-                    a + SITE_CHUNK,
-                    n_site
-                )
+                s = sum_[:, a:b]
 
-                s = sum_[
-                    :,
-                    a:b
-                ]
+                c = cnt[:, a:b]
 
-                c = cnt[
-                    :,
-                    a:b
-                ]
-
-                with np.errstate(
-                    invalid="ignore",
-                    divide="ignore"
-                ):
-
-                    out = (
-                        s / c
-                    )
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    out = s / c
 
                 # Replace sites with zero observations by NaN.
-                out[
-                    c == 0
-                ] = np.nan
+                out[c == 0] = np.nan
 
-                fr_mean[
-                    :,
-                    a:b
-                ] = out
+                fr_mean[:, a:b] = out
 
                 del s
                 del c
@@ -1537,42 +959,25 @@ def main():
             "lon": lon,
             "lat": lat,
             "fr_mean": fr_mean,
-            "years": np.asarray(
-                years,
-                dtype=np.int32
-            ),
+            "years": np.asarray(years, dtype=np.int32),
         }
 
         # -----------------------------------------------------------------
         # Plot.
         # -----------------------------------------------------------------
 
-        render(
-            d,
-            args
-        )
+        render(d, args)
 
     except subprocess.CalledProcessError as e:
-
         raise SystemExit(
-            "Reader child failed "
-            f"(exit {e.returncode}) "
-            "reading the .nc files."
+            "Reader child failed " f"(exit {e.returncode}) " "reading the .nc files."
         )
 
     finally:
-
         # Clean temporary files.
         if os.path.isdir(tmpdir):
-
-            for f in os.listdir(
-                tmpdir
-            ):
-
-                path = os.path.join(
-                    tmpdir,
-                    f
-                )
+            for f in os.listdir(tmpdir):
+                path = os.path.join(tmpdir, f)
 
                 try:
                     os.remove(path)
@@ -1580,9 +985,7 @@ def main():
                     pass
 
             try:
-                os.rmdir(
-                    tmpdir
-                )
+                os.rmdir(tmpdir)
             except OSError:
                 pass
 

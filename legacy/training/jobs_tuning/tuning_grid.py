@@ -33,9 +33,8 @@ MODELS = ["lstm", "aelstm", "attnlstm", "bitransformer_v2"]
 
 def _grid(model):
     """List of (lr, size, depth, dropout|None) tuples for the model."""
-    if model == "lstm":                       # RNN_LSTM ignores dropout
-        return [(lr, s, d, None)
-                for lr, s, d in itertools.product(LR, SIZE, DEPTH)]
+    if model == "lstm":  # RNN_LSTM ignores dropout
+        return [(lr, s, d, None) for lr, s, d in itertools.product(LR, SIZE, DEPTH)]
     return list(itertools.product(LR, SIZE, DEPTH, DROPOUT))
 
 
@@ -51,9 +50,9 @@ def config_overrides(model, lr, size, depth, drop, stress=None):
     ov = {"learning_rate": lr, "hidden_size": size, "num_layers": depth}
     if drop is not None:
         if model in ("bitransformer_v2", "attnlstm"):
-            ov["dropout1"] = drop                 # stage-1 transformer
-            ov["dropout2"] = drop                 # stage-2 / LSTM
-        else:                                     # aelstm
+            ov["dropout1"] = drop  # stage-1 transformer
+            ov["dropout2"] = drop  # stage-2 / LSTM
+        else:  # aelstm
             ov["dropout2"] = drop
     if stress is not None and model in ("bitransformer_v2", "attnlstm"):
         ov["stress_dim"] = stress
@@ -79,8 +78,9 @@ def main():
         print(len(grid))
         return
     if not (0 <= a.index < len(grid)):
-        raise SystemExit(f"index {a.index} out of range 0..{len(grid) - 1} "
-                         f"for {a.model}")
+        raise SystemExit(
+            f"index {a.index} out of range 0..{len(grid) - 1} " f"for {a.model}"
+        )
     print(_flags(a.model, *grid[a.index]))
 
 

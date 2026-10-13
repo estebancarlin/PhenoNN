@@ -29,11 +29,12 @@ import argparse
 import os
 from collections import Counter
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import xarray as xr
 
+from phenonn.data.lai_dataset import load_parent01_map
 from phenonn.utils.config import METEO_BASE, FEATURES_FNAME
 
 
@@ -42,18 +43,36 @@ def parse_args():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--era5_dir", required=True,
-                   help="Folder of ERA5_daily_pixelset_{Y}.nc.")
+    p.add_argument(
+        "--era5_dir", required=True, help="Folder of ERA5_daily_pixelset_{Y}.nc."
+    )
     p.add_argument("--year_start", type=int, required=True)
     p.add_argument("--year_end", type=int, required=True)
-    p.add_argument("--selected_pixels", default="",
-                   help="Optional selected_pixels*.nc to restrict the count to "
-                        "that site subset (default: all sites in each file).")
-    p.add_argument("--features", default="",
-                   help="Comma-separated feature names (default: METEO_BASE + "
-                        "any SMI present).")
-    p.add_argument("--output_csv", default="",
-                   help="Optional path to write the per-(year, feature) table.")
+    p.add_argument(
+        "--selected_pixels",
+        default="",
+        help="Optional selected_pixels*.nc to restrict the count to "
+        "that site subset (default: all sites in each file).",
+    )
+    p.add_argument(
+        "--parent_map",
+        default="",
+        help="selected_pixels_01.nc mapping 0.05° site_ids to their 0.1° "
+        "ERA5 parent cells. Required when --selected_pixels holds 0.05° "
+        "(pix_...) ids but the ERA5 cubes are 0.1° (E... ids), as in "
+        "scripts/smoke_train.sh.",
+    )
+    p.add_argument(
+        "--features",
+        default="",
+        help="Comma-separated feature names (default: METEO_BASE + "
+        "any SMI present).",
+    )
+    p.add_argument(
+        "--output_csv",
+        default="",
+        help="Optional path to write the per-(year, feature) table.",
+    )
     return p.parse_args()
 
 
@@ -68,17 +87,34 @@ def main():
     args = parse_args()
     era5_dir = Path(args.era5_dir).resolve()
     wanted = _wanted_sites(args.selected_pixels)
+    # ERA5 cubes may live on the deduplicated 0.1° grid while the pool holds
+    # 0.05° ids: translate through the parent map before matching (same join
+    # as training, see scripts/smoke_train.sh).
+    feat_wanted = wanted
+    if args.parent_map:
+        if wanted is None:
+            print("[warn] --parent_map given without --selected_pixels; ignoring.")
+        else:
+            pm = load_parent01_map(args.parent_map)
+            feat_wanted = np.array(sorted({pm[s] for s in wanted if s in pm}))
+            n_drop = len(wanted) - sum(1 for s in wanted if s in pm)
+            print(
+                f"Parent map  : {args.parent_map} ({len(pm):,} links; "
+                f"{feat_wanted.size:,} ERA5 cells for {len(wanted):,} sites"
+                + (f", {n_drop} unmatched" if n_drop else "")
+                + ")"
+            )
 
     if args.features:
         feats = [s.strip() for s in args.features.split(",") if s.strip()]
     else:
-        feats = list(METEO_BASE)   # extended with SMI below if present
+        feats = list(METEO_BASE)  # extended with SMI below if present
 
     years = range(args.year_start, args.year_end + 1)
 
     time_lengths = Counter()
-    per_year = []          # (year, n_time, n_sel, total, nan)
-    rows = []              # (year, feature, total, nan) for the CSV
+    per_year = []  # (year, n_time, n_sel, total, nan)
+    rows = []  # (year, feature, total, nan) for the CSV
     feat_total = Counter()
     feat_nan = Counter()
     seen_extra = set()
@@ -91,10 +127,10 @@ def main():
         with xr.open_dataset(fpath, engine="netcdf4", decode_times=False) as ds:
             n_time = int(ds.sizes["time"])
             file_ids = np.asarray(ds["site_id"].values).astype(str)
-            if wanted is None:
+            if feat_wanted is None:
                 mask = np.ones(file_ids.shape, dtype=bool)
             else:
-                mask = np.isin(file_ids, wanted)
+                mask = np.isin(file_ids, feat_wanted)
             n_sel = int(mask.sum())
 
             # auto-add SMI (or any requested extra) if present and not listed
@@ -108,8 +144,7 @@ def main():
             y_total = 0
             y_nan = 0
             for f in file_feats:
-                arr = (ds[f].transpose("time", "site")
-                       .values[:, mask].astype(np.float32))
+                arr = ds[f].transpose("time", "site").values[:, mask].astype(np.float32)
                 tot = arr.size
                 nan = int((~np.isfinite(arr)).sum())
                 rows.append((year, f, tot, nan))
@@ -121,8 +156,10 @@ def main():
         time_lengths[n_time] += 1
         per_year.append((year, n_time, n_sel, y_total, y_nan))
         pct = 100.0 * y_nan / y_total if y_total else 0.0
-        print(f"  ✓ {year}: time={n_time}  cells={n_sel:,}  "
-              f"NaN={y_nan:,}/{y_total:,} ({pct:.3f}%)")
+        print(
+            f"  ✓ {year}: time={n_time}  cells={n_sel:,}  "
+            f"NaN={y_nan:,}/{y_total:,} ({pct:.3f}%)"
+        )
 
     if seen_extra:
         feats = feats + sorted(seen_extra)
@@ -133,10 +170,12 @@ def main():
         print(f"  {length} days : {n} year(s)")
     if len(time_lengths) > 1:
         modal = time_lengths.most_common(1)[0][0]
-        odd = [y for (y, nt, *_ ) in per_year if nt != modal]
-        print(f"  → mixed lengths! modal={modal}; "
-              f"seasonal plot keeps only the length of the FIRST year "
-              f"({per_year[0][1]} days). Off-length years: {odd}")
+        odd = [y for (y, nt, *_) in per_year if nt != modal]
+        print(
+            f"  → mixed lengths! modal={modal}; "
+            f"seasonal plot keeps only the length of the FIRST year "
+            f"({per_year[0][1]} days). Off-length years: {odd}"
+        )
 
     print("\n=== NaN per feature (all years pooled) ===")
     for f in feats:
@@ -150,12 +189,14 @@ def main():
     if args.output_csv:
         os.makedirs(os.path.dirname(args.output_csv) or ".", exist_ok=True)
         import csv
+
         with open(args.output_csv, "w", newline="") as fh:
             w = csv.writer(fh)
             w.writerow(["year", "feature", "total", "nan", "nan_pct"])
             for year, f, tot, nan in rows:
-                w.writerow([year, f, tot, nan,
-                            f"{100.0 * nan / tot:.4f}" if tot else ""])
+                w.writerow(
+                    [year, f, tot, nan, f"{100.0 * nan / tot:.4f}" if tot else ""]
+                )
         print(f"\n  → per-(year, feature) table: {args.output_csv}")
 
 

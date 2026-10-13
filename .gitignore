@@ -197,4 +197,15 @@ gcc_pred_*
 uv.lock
 
 # Local-only work planning doc (private, never commit upstream)
-/PhenoNN Cleanup & Packaging — 6-Week Work Plan.md
+PhenoNN Cleanup & Packaging — 6-Week Work Plan(1).md
+/PhenoNN Cleanup & Packaging — 6-Week Work Plan(1).md
+# Local HPC data symlink (machine-specific, don't commit)
+/pixelset1
+
+# Personal agent instructions (private, never commit upstream)
+AGENTS.md
+/AGENTS.md
+
+# Runs / Checkpoints / Logs / Slurm / Results / Data
+runs
+/runs

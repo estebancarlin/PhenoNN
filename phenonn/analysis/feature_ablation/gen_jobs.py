@@ -19,29 +19,35 @@ once to match your paths, then:
 
 from pathlib import Path
 
-from phenonn.analysis.feature_ablation._common import NON_PFT_FEATURES, BASELINE_EXP, exp_name
+from phenonn.analysis.feature_ablation._common import (
+    NON_PFT_FEATURES,
+    BASELINE_EXP,
+    exp_name,
+)
 
 # ── EDIT (cluster) ───────────────────────────────────────────────────────────
-VENV       = "~/PhenoNN/.venv/bin/activate"
-PROJECT    = "/net/nfs/ssd2/sbarbu/PhenoNN"      # dir containing phenon/ and study/
-OUTPUT_DIR = "runs"                              # --output_dir (runs/<exp>/…)
-LOG_SUBDIR = "runs/ablation_logs"               # python stdout goes here
+VENV = "~/PhenoNN/.venv/bin/activate"
+PROJECT = "/net/nfs/ssd2/sbarbu/PhenoNN"  # dir containing phenon/ and study/
+OUTPUT_DIR = "runs"  # --output_dir (runs/<exp>/…)
+LOG_SUBDIR = "runs/ablation_logs"  # python stdout goes here
 
 # ── EDIT (training command) — the Base1 baseline from overnight_sweep.sh, ─────
 #    minus --experiment (set per run). One space-joined line.
-COMMON_ARGS = " ".join([
-    "--features_dir /data/sbarbu/PhenoNN/data/era5_10%",
-    "--target_dir /data/sbarbu/PhenoNN/data/pixelset_10%/LAI_pixelset",
-    "--pft_dir /data/sbarbu/PhenoNN/data/pixelset_10%/PFT_pixelset",
-    "--selected_pixels /data/sbarbu/PhenoNN/data/selected_pixels_10%.nc",
-    "--co2_path /net/nfs/ssd1/sbarbu/PhenoNN/data/CO2_1700_2023_TRENDYv2024.txt",
-    "--stats_path /net/nfs/ssd2/sbarbu/PhenoNN/data/norm_stats_10%.json",
-    "--train_years 2001-2004 --val_years 2005",
-    "--val_fraction_of_grid 100",
-    "--n_sites_per_epoch 50000 --n_years_per_epoch 4 --n_val_sites 50000",
-    "--num_epochs 200 --pft_mixing",
-    "--type lstm --hidden_size 256 --num_layers 2 --batch_size 1024",
-])
+COMMON_ARGS = " ".join(
+    [
+        "--features_dir /data/sbarbu/PhenoNN/data/era5_10%",
+        "--target_dir /data/sbarbu/PhenoNN/data/pixelset_10%/LAI_pixelset",
+        "--pft_dir /data/sbarbu/PhenoNN/data/pixelset_10%/PFT_pixelset",
+        "--selected_pixels /data/sbarbu/PhenoNN/data/selected_pixels_10%.nc",
+        "--co2_path /net/nfs/ssd1/sbarbu/PhenoNN/data/CO2_1700_2023_TRENDYv2024.txt",
+        "--stats_path /net/nfs/ssd2/sbarbu/PhenoNN/data/norm_stats_10%.json",
+        "--train_years 2001-2004 --val_years 2005",
+        "--val_fraction_of_grid 100",
+        "--n_sites_per_epoch 50000 --n_years_per_epoch 4 --n_val_sites 50000",
+        "--num_epochs 200 --pft_mixing",
+        "--type lstm --hidden_size 256 --num_layers 2 --batch_size 1024",
+    ]
+)
 # ─────────────────────────────────────────────────────────────────────────────
 
 SBATCH_HEADER = """#!/usr/bin/env bash
@@ -65,12 +71,15 @@ mkdir -p {logdir}
 
 
 def _script(tag: str, job: str, ablate: str, experiment: str) -> str:
-    header = SBATCH_HEADER.format(job=job, proj=PROJECT, tag=tag,
-                                  venv=VENV, logdir=LOG_SUBDIR)
-    cmd = (f"python -m phenonn.analysis.feature_ablation.train_ablate "
-           f"--ablate_feature {ablate} {COMMON_ARGS} "
-           f"--output_dir {OUTPUT_DIR} --experiment {experiment} "
-           f"> {LOG_SUBDIR}/{tag}.log 2>&1\n")
+    header = SBATCH_HEADER.format(
+        job=job, proj=PROJECT, tag=tag, venv=VENV, logdir=LOG_SUBDIR
+    )
+    cmd = (
+        f"python -m phenonn.analysis.feature_ablation.train_ablate "
+        f"--ablate_feature {ablate} {COMMON_ARGS} "
+        f"--output_dir {OUTPUT_DIR} --experiment {experiment} "
+        f"> {LOG_SUBDIR}/{tag}.log 2>&1\n"
+    )
     return header + "\n" + cmd
 
 
@@ -79,12 +88,14 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     (out_dir / "run_baseline.sh").write_text(
-        _script("baseline", "abl_baseline", "none", BASELINE_EXP))
+        _script("baseline", "abl_baseline", "none", BASELINE_EXP)
+    )
 
     for feat in NON_PFT_FEATURES:
         tag = f"ablate_{feat}"
         (out_dir / f"run_{tag}.sh").write_text(
-            _script(tag, f"abl_{feat}", feat, exp_name(feat)))
+            _script(tag, f"abl_{feat}", feat, exp_name(feat))
+        )
 
     n = len(NON_PFT_FEATURES)
     print(f"Wrote {n + 1} scripts to {out_dir}/  (1 baseline + {n} ablations)")

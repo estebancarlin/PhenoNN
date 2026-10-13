@@ -82,26 +82,35 @@ def _seed_all(seed):
 
 def _is_done(args_i):
     """train_one_config writes exp_dir/config.json LAST → its presence = done."""
-    return os.path.exists(os.path.join(args_i.output_dir, args_i.experiment,
-                                       "config.json"))
+    return os.path.exists(
+        os.path.join(args_i.output_dir, args_i.experiment, "config.json")
+    )
 
 
 def main():
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--model", required=True, choices=MODELS)
     ap.add_argument("--group", required=True, choices=GROUPS)
-    ap.add_argument("--indices", default="",
-                    help="Plan entries for THIS process: '0-8', '0,3,7', or "
-                         "empty for all. Slice across GPUs to keep parallelism.")
+    ap.add_argument(
+        "--indices",
+        default="",
+        help="Plan entries for THIS process: '0-8', '0,3,7', or "
+        "empty for all. Slice across GPUs to keep parallelism.",
+    )
     known, rest = ap.parse_known_args()
 
-    base_args = T.parse_args(rest)          # standard train_full_ram CLI
+    base_args = T.parse_args(rest)  # standard train_full_ram CLI
 
     # The group must match the CLI: anomaly plan ⇒ --anomaly_mode load, and only
     # that group may carry it (else the shared load would be wrong for the runs).
-    if known.group in ("anomaly", "anom_loss", "anom_loss_nomix") and not base_args.anomaly_mode:
-        raise SystemExit(f"--group {known.group} requires --anomaly_mode (and "
-                         "--clim_years on the train years) on the CLI.")
+    if (
+        known.group in ("anomaly", "anom_loss", "anom_loss_nomix")
+        and not base_args.anomaly_mode
+    ):
+        raise SystemExit(
+            f"--group {known.group} requires --anomaly_mode (and "
+            "--clim_years on the train years) on the CLI."
+        )
     if known.group in ("nonanomaly", "big", "loss", "daily") and base_args.anomaly_mode:
         raise SystemExit(f"--group {known.group} must NOT be run with --anomaly_mode.")
 
@@ -115,10 +124,15 @@ def main():
 
     sweep_dir = os.path.join(base_args.output_dir, f"sweep_{known.model}_{known.group}")
     FileUtils.makedir(sweep_dir)
-    load_logger = Logger(console_output=True, file_output=True,
-                         log_file=os.path.join(sweep_dir, "load.log"))
-    load_logger.show_header(f"PhenoNN in-process sweep — {known.model} "
-                            f"[{known.group}] ({len(idxs)}/{len(entries)} configs)")
+    load_logger = Logger(
+        console_output=True,
+        file_output=True,
+        log_file=os.path.join(sweep_dir, "load.log"),
+    )
+    load_logger.show_header(
+        f"PhenoNN in-process sweep — {known.model} "
+        f"[{known.group}] ({len(idxs)}/{len(entries)} configs)"
+    )
 
     # ── Load the resident datasets ONCE for this group ──
     _seed_all(base_args.seed)
@@ -140,9 +154,14 @@ def main():
 
         log_dir = os.path.join(args_i.output_dir, args_i.experiment, "logs")
         FileUtils.makedir(log_dir)
-        cfg_logger = Logger(console_output=True, file_output=True,
-                            log_file=os.path.join(log_dir, "train.log"))
-        cfg_logger.show_header(f"{known.model} [{known.group}] idx {i}: {entry['name']}")
+        cfg_logger = Logger(
+            console_output=True,
+            file_output=True,
+            log_file=os.path.join(log_dir, "train.log"),
+        )
+        cfg_logger.show_header(
+            f"{known.model} [{known.group}] idx {i}: {entry['name']}"
+        )
 
         # Reset seeds before each build so model init is reproducible and
         # independent of how many configs ran before it in this process.

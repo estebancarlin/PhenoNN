@@ -20,7 +20,9 @@ Usage
 import argparse
 
 from phenonn.analysis.perturbation._perturb import (
-    ChannelPerturbation, Perturbation, SEASONS,
+    ChannelPerturbation,
+    Perturbation,
+    SEASONS,
 )
 from phenonn.analysis.perturbation import run_perturbation as R
 
@@ -29,15 +31,28 @@ TEMP_CHANNELS = ["Tmin", "Tmax", "Tmean"]
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     R.add_common_args(p)
-    p.add_argument("--delta_t", type=float, default=2.0,
-                   help="°C added to Tmin/Tmax/Tmean (all year). Default +2.")
-    p.add_argument("--delta_co2", type=float, default=100.0,
-                   help="ppm added to the CO2 channel (all year). Default +100.")
-    p.add_argument("--season", default="year", choices=list(SEASONS),
-                   help="DOY window of the change (default: year = all days).")
+    p.add_argument(
+        "--delta_t",
+        type=float,
+        default=2.0,
+        help="°C added to Tmin/Tmax/Tmean (all year). Default +2.",
+    )
+    p.add_argument(
+        "--delta_co2",
+        type=float,
+        default=100.0,
+        help="ppm added to the CO2 channel (all year). Default +100.",
+    )
+    p.add_argument(
+        "--season",
+        default="year",
+        choices=list(SEASONS),
+        help="DOY window of the change (default: year = all days).",
+    )
     args = p.parse_args()
 
     def make(norm_stats):
@@ -46,9 +61,13 @@ def main():
             chans.append(ChannelPerturbation("co2", add=args.delta_co2))
         return Perturbation(chans, norm_stats, season_ranges=SEASONS[args.season])
 
-    R.run(args, make, SCENARIO,
-          f"Temperature {args.delta_t:+g}°C + CO2 {args.delta_co2:+g} ppm "
-          f"over {args.season}.")
+    R.run(
+        args,
+        make,
+        SCENARIO,
+        f"Temperature {args.delta_t:+g}°C + CO2 {args.delta_co2:+g} ppm "
+        f"over {args.season}.",
+    )
 
 
 if __name__ == "__main__":

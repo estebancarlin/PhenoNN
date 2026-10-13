@@ -46,6 +46,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
+from phenonn.data.lai_dataset import load_parent01_map
 from phenonn.utils.config import FEATURES_FNAME
 
 
@@ -63,9 +64,11 @@ def _infer_step(v: np.ndarray):
 
 def _stats(name: str, d: np.ndarray):
     a = np.abs(d)
-    print(f"  {name}: mean={d.mean():+.4f}  median={np.median(d):+.4f}  "
-          f"min={d.min():+.4f}  max={d.max():+.4f}  |mean|={a.mean():.4f}  "
-          f"|max|={a.max():.4f}  deg")
+    print(
+        f"  {name}: mean={d.mean():+.4f}  median={np.median(d):+.4f}  "
+        f"min={d.min():+.4f}  max={d.max():+.4f}  |mean|={a.mean():.4f}  "
+        f"|max|={a.max():.4f}  deg"
+    )
 
 
 def _top_offsets(d: np.ndarray, round_to: float = 0.05, top: int = 8):
@@ -79,11 +82,11 @@ def _top_offsets(d: np.ndarray, round_to: float = 0.05, top: int = 8):
 def _load_selected(path: Path):
     with xr.open_dataset(path) as sel:
         return {
-            "site_id":   np.asarray(sel["site_id"].values).astype(str),
-            "latitude":  np.asarray(sel["latitude"].values, dtype=float),
+            "site_id": np.asarray(sel["site_id"].values).astype(str),
+            "latitude": np.asarray(sel["latitude"].values, dtype=float),
             "longitude": np.asarray(sel["longitude"].values, dtype=float),
-            "lat_idx":   sel["lat_idx"].values.astype(np.int64),
-            "lon_idx":   sel["lon_idx"].values.astype(np.int64),
+            "lat_idx": sel["lat_idx"].values.astype(np.int64),
+            "lon_idx": sel["lon_idx"].values.astype(np.int64),
         }
 
 
@@ -92,37 +95,80 @@ def _load_era5_coords(path: Path):
         if "latitude" not in ds or "longitude" not in ds:
             raise SystemExit(
                 f"{path.name} carries no latitude/longitude(site) coord — cannot "
-                f"run mode 1. (Rebuild carries them via .isel, or use --era5_grid.)")
+                f"run mode 1. (Rebuild carries them via .isel, or use --era5_grid.)"
+            )
         return {
-            "site_id":   np.asarray(ds["site_id"].values).astype(str),
-            "latitude":  np.asarray(ds["latitude"].values, dtype=float),
+            "site_id": np.asarray(ds["site_id"].values).astype(str),
+            "latitude": np.asarray(ds["latitude"].values, dtype=float),
             "longitude": np.asarray(ds["longitude"].values, dtype=float),
         }
 
 
 def _grid_latlon(path: Path):
     with xr.open_dataset(path, engine="netcdf4", decode_times=False) as ds:
-        latn = "latitude" if ("latitude" in ds.coords or "latitude" in ds.dims) else "lat"
-        lonn = "longitude" if ("longitude" in ds.coords or "longitude" in ds.dims) else "lon"
+        latn = (
+            "latitude" if ("latitude" in ds.coords or "latitude" in ds.dims) else "lat"
+        )
+        lonn = (
+            "longitude"
+            if ("longitude" in ds.coords or "longitude" in ds.dims)
+            else "lon"
+        )
         return ds[latn].values.astype(float), ds[lonn].values.astype(float)
 
 
 def main():
     p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--selected_pixels", required=True)
-    p.add_argument("--era5_dir", required=True,
-                   help="Folder of ERA5_daily_pixelset_{Y}.nc.")
-    p.add_argument("--year", type=int, required=True,
-                   help="Which ERA5 pixelset year to read the coords from.")
-    p.add_argument("--era5_grid", default="",
-                   help="Optional raw ERA5-Land file to also report grid geometry "
-                        "and reproduce the index->coord mapping (mode 2).")
-    p.add_argument("--max_report", type=int, default=20,
-                   help="How many worst-offset sites to list (default 20).")
+    p.add_argument(
+        "--era5_dir", required=True, help="Folder of ERA5_daily_pixelset_{Y}.nc."
+    )
+    p.add_argument(
+        "--year",
+        type=int,
+        required=True,
+        help="Which ERA5 pixelset year to read the coords from.",
+    )
+    p.add_argument(
+        "--era5_grid",
+        default="",
+        help="Optional raw ERA5-Land file to also report grid geometry "
+        "and reproduce the index->coord mapping (mode 2).",
+    )
+    p.add_argument(
+        "--max_report",
+        type=int,
+        default=20,
+        help="How many worst-offset sites to list (default 20).",
+    )
+    p.add_argument(
+        "--parent_map",
+        default="",
+        help="selected_pixels_01.nc mapping the pool's 0.05° (pix_...) ids "
+        "to the ERA5 cubes' 0.1° (E...) ids before joining "
+        "(scripts/smoke_train.sh pairing).",
+    )
     args = p.parse_args()
 
     sel = _load_selected(Path(args.selected_pixels).resolve())
+    if args.parent_map:
+        pm = load_parent01_map(args.parent_map)
+        keep = np.array([s in pm for s in sel["site_id"]])
+        print(
+            f"Parent map  : {args.parent_map} ({len(pm):,} links; "
+            f"{int(keep.sum()):,}/{sel['site_id'].size:,} pool sites mapped"
+            + ("" if keep.all() else f", {int((~keep).sum())} dropped")
+            + ")"
+        )
+        sel = {
+            "site_id": np.array([pm[s] for s in sel["site_id"][keep]]),
+            "latitude": sel["latitude"][keep],
+            "longitude": sel["longitude"][keep],
+            "lat_idx": sel["lat_idx"][keep],
+            "lon_idx": sel["lon_idx"][keep],
+        }
     fpath = Path(args.era5_dir).resolve() / FEATURES_FNAME.format(year=args.year)
     era5 = _load_era5_coords(fpath)
 
@@ -133,8 +179,10 @@ def main():
     n_tot, n_ok = sel["site_id"].size, int(ok.sum())
     print(f"selected_pixels : {n_tot:,} sites")
     print(f"ERA5 pixelset   : {fpath.name}  ({era5['site_id'].size:,} sites)")
-    print(f"matched by id   : {n_ok:,}"
-          + ("" if n_ok == n_tot else f"  (! {n_tot - n_ok:,} unmatched)"))
+    print(
+        f"matched by id   : {n_ok:,}"
+        + ("" if n_ok == n_tot else f"  (! {n_tot - n_ok:,} unmatched)")
+    )
     if n_ok == 0:
         raise SystemExit("No site_id in common — wrong files?")
 
@@ -144,7 +192,7 @@ def main():
     e_lon = _wrap180(era5["longitude"][idx[ok]])
 
     dlat = e_lat - ref_lat
-    dlon = _wrap180(e_lon - ref_lon)   # wrap the difference too (dateline safe)
+    dlon = _wrap180(e_lon - ref_lon)  # wrap the difference too (dateline safe)
 
     print("\n=== realised offset  ERA5(stored) - LAI/PFT(ref) ===")
     _stats("d_lat", dlat)
@@ -153,34 +201,47 @@ def main():
     print("  most common d_lon (rounded 0.05):", _top_offsets(dlon))
 
     mag = np.hypot(dlat, dlon)
-    worst = np.argsort(mag)[::-1][:max(0, args.max_report)]
+    worst = np.argsort(mag)[::-1][: max(0, args.max_report)]
     if worst.size:
         okid = sel["site_id"][ok]
-        print(f"\n=== {worst.size} worst-offset sites "
-              f"(|hypot(d_lat,d_lon)| deg) ===")
-        print(f"  {'site_id':>18}  {'ref_lat':>8} {'ref_lon':>8}  "
-              f"{'era_lat':>8} {'era_lon':>8}  {'d_lat':>7} {'d_lon':>7}")
+        print(
+            f"\n=== {worst.size} worst-offset sites " f"(|hypot(d_lat,d_lon)| deg) ==="
+        )
+        print(
+            f"  {'site_id':>18}  {'ref_lat':>8} {'ref_lon':>8}  "
+            f"{'era_lat':>8} {'era_lon':>8}  {'d_lat':>7} {'d_lon':>7}"
+        )
         for j in worst:
-            print(f"  {okid[j]:>18}  {ref_lat[j]:8.3f} {ref_lon[j]:8.3f}  "
-                  f"{e_lat[j]:8.3f} {e_lon[j]:8.3f}  "
-                  f"{dlat[j]:+7.3f} {dlon[j]:+7.3f}")
+            print(
+                f"  {okid[j]:>18}  {ref_lat[j]:8.3f} {ref_lon[j]:8.3f}  "
+                f"{e_lat[j]:8.3f} {e_lon[j]:8.3f}  "
+                f"{dlat[j]:+7.3f} {dlon[j]:+7.3f}"
+            )
 
     # ── Mode 2 : raw ERA5 grid geometry + index reproduction ──
     if args.era5_grid:
         latv, lonv = _grid_latlon(Path(args.era5_grid).resolve())
         print("\n=== ERA5 raw grid geometry ===")
-        print(f"  lat: {latv[0]:+.4f} .. {latv[-1]:+.4f}  step={_infer_step(latv):+.4f}"
-              f"  n={latv.size}")
-        print(f"  lon: {lonv[0]:+.4f} .. {lonv[-1]:+.4f}  step={_infer_step(lonv):+.4f}"
-              f"  n={lonv.size}")
+        print(
+            f"  lat: {latv[0]:+.4f} .. {latv[-1]:+.4f}  step={_infer_step(latv):+.4f}"
+            f"  n={latv.size}"
+        )
+        print(
+            f"  lon: {lonv[0]:+.4f} .. {lonv[-1]:+.4f}  step={_infer_step(lonv):+.4f}"
+            f"  n={lonv.size}"
+        )
         # infer the LAI/PFT grid from the ref per-pixel coords (sparse but telling)
         rlat = np.unique(sel["latitude"])
         rlon = np.unique(_wrap180(sel["longitude"]))
         print("=== LAI/PFT ref coords (from selected_pixels) ===")
-        print(f"  lat: {rlat.min():+.4f} .. {rlat.max():+.4f}  "
-              f"min|step|={np.min(np.diff(rlat)) if rlat.size > 1 else float('nan'):.4f}")
-        print(f"  lon: {rlon.min():+.4f} .. {rlon.max():+.4f}  "
-              f"min|step|={np.min(np.diff(rlon)) if rlon.size > 1 else float('nan'):.4f}")
+        print(
+            f"  lat: {rlat.min():+.4f} .. {rlat.max():+.4f}  "
+            f"min|step|={np.min(np.diff(rlat)) if rlat.size > 1 else float('nan'):.4f}"
+        )
+        print(
+            f"  lon: {rlon.min():+.4f} .. {rlon.max():+.4f}  "
+            f"min|step|={np.min(np.diff(rlon)) if rlon.size > 1 else float('nan'):.4f}"
+        )
 
         n_lon = lonv.size
         lon_shift = (sel["lon_idx"] + n_lon // 2) % n_lon
@@ -199,8 +260,10 @@ def main():
         _stats("d_lon(idx)", _wrap180(e2_lon - r2_lon))
         # does the reproduced coord match what the pixelset stored?
         s2 = era5["latitude"][idx[good]] - e2_lat
-        print(f"  stored-vs-reproduced d_lat: |max|={np.abs(s2).max():.4f} "
-              f"(0 => same grid+shift as extractor)")
+        print(
+            f"  stored-vs-reproduced d_lat: |max|={np.abs(s2).max():.4f} "
+            f"(0 => same grid+shift as extractor)"
+        )
 
 
 if __name__ == "__main__":

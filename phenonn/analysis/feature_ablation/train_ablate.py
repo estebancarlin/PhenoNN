@@ -54,7 +54,7 @@ def _pop_ablate_feature(argv) -> str:
             if i + 1 >= len(argv):
                 raise SystemExit(f"{flag} requires a value (a feature name or 'none').")
             val = argv[i + 1]
-            del argv[i:i + 2]
+            del argv[i : i + 2]
             return val
         if a.startswith(flag + "="):
             val = a.split("=", 1)[1]
@@ -92,10 +92,11 @@ def _install_ablation(module, ch: int) -> None:
         x = inputs[0]
         if not torch.is_tensor(x):
             return None
-        assert x.shape[1] == FEATURE_CHANNELS, (
-            f"expected {FEATURE_CHANNELS} feature channels, got {x.shape[1]}")
+        assert (
+            x.shape[1] == FEATURE_CHANNELS
+        ), f"expected {FEATURE_CHANNELS} feature channels, got {x.shape[1]}"
         x = x.clone()
-        x[:, ch, :] = 0.0                       # z-scored channel -> its mean
+        x[:, ch, :] = 0.0  # z-scored channel -> its mean
         return (x,) + tuple(inputs[1:])
 
     orig_build_model = module.build_model
@@ -120,6 +121,7 @@ def main():
     ch = _resolve_channel(name)
 
     import phenonn.training.train_full_ram as trainer
+
     if ch is not None:
         _install_ablation(trainer, ch)
     trainer.main()

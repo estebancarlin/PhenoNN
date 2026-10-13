@@ -55,17 +55,12 @@ Models Module
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.models.transformerbis
+.. automodule:: phenonn.models.aelstm
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.models.fcn
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: phenonn.models.linear_baseline
+.. automodule:: phenonn.models.bitransformer
    :members:
    :undoc-members:
    :show-inheritance:
@@ -130,11 +125,6 @@ Utils Module
    :show-inheritance:
 
 .. automodule:: phenonn.utils.model_loader
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: phenonn.utils.model_utils
    :members:
    :undoc-members:
    :show-inheritance:

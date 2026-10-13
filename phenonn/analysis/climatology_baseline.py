@@ -85,52 +85,84 @@ def parse_args():
     p = argparse.ArgumentParser(
         description="Climatology baseline comparison for LAI predictions"
     )
-    p.add_argument("--predictions", required=True,
-                   help="Path to predictions_flat.csv")
-    p.add_argument("--output", default="",
-                   help="Output base path "
-                        "(default: same dir as predictions, stem 'clim')")
-    p.add_argument("--pooled", action="store_true",
-                   help="Use pooled climatology (all years incl. target). "
-                        "Default: leave-one-year-out.")
-    p.add_argument("--min_years", type=int, default=2,
-                   help="Minimum years per site to evaluate the baseline "
-                        "(default: 2 — needs ≥ 2 to leave one out)")
-    p.add_argument("--clim_years", default="",
-                   help="Years used to compute the climatology mean per (site, "
-                        "DOY). E.g. '1992-2010' or '2000,2001,2005'. When given, "
-                        "the climatology is a fixed reference period applied "
-                        "uniformly to every evaluated row (LOO is disabled). "
-                        "Default: use all years in the predictions CSV with "
-                        "--pooled or LOO behavior.")
-    p.add_argument("--eval_years", default="",
-                   help="Years used for evaluation (metrics + plots). E.g. "
-                        "'2011-2018'. Default: all years in the predictions CSV.")
-    p.add_argument("--clim_target_dir", default="",
-                   help="Folder containing target_{year}.csv files for the "
-                        "climatology reference period. Use when --clim_years "
-                        "are outside the predictions CSV (typical: historical "
-                        "clim vs. future evaluation). The script loads "
-                        "observations from these files filtered to the sites "
-                        "present in the predictions CSV.")
-    p.add_argument("--n_curves", type=int, default=0,
-                   help="If > 0, plot climatology-vs-obs annual LAI curves for "
-                        "n_curves sites sampled to cover the per-site R² "
-                        "distribution. Produces *_clim_lai_curves_all.png "
-                        "(grid). When n_curves ≥ 3, also produces "
-                        "*_clim_lai_curves.png with 3 representative sites "
-                        "(low/medium/high R² within the sampled subset). "
-                        "Default 0 = skip curve plots.")
-    p.add_argument("--n_curves_seed", type=int, default=42,
-                   help="Seed for the n_curves site sampling and the "
-                        "tercile picks. Default 42.")
-    p.add_argument("--pft_dir", default="",
-                   help="PFT pixelset dir (PFTmap_{year}.nc). When set, each "
-                        "*_clim_lai_curves_all.png subplot title lists the PFTs "
-                        "with fraction ≥ --pft_min_frac.")
-    p.add_argument("--pft_min_frac", type=float, default=0.05,
-                   help="Show PFTs with fraction ≥ this threshold above each "
-                        "curve subplot (default: 0.05 = 5%%).")
+    p.add_argument("--predictions", required=True, help="Path to predictions_flat.csv")
+    p.add_argument(
+        "--output",
+        default="",
+        help="Output base path " "(default: same dir as predictions, stem 'clim')",
+    )
+    p.add_argument(
+        "--pooled",
+        action="store_true",
+        help="Use pooled climatology (all years incl. target). "
+        "Default: leave-one-year-out.",
+    )
+    p.add_argument(
+        "--min_years",
+        type=int,
+        default=2,
+        help="Minimum years per site to evaluate the baseline "
+        "(default: 2 — needs ≥ 2 to leave one out)",
+    )
+    p.add_argument(
+        "--clim_years",
+        default="",
+        help="Years used to compute the climatology mean per (site, "
+        "DOY). E.g. '1992-2010' or '2000,2001,2005'. When given, "
+        "the climatology is a fixed reference period applied "
+        "uniformly to every evaluated row (LOO is disabled). "
+        "Default: use all years in the predictions CSV with "
+        "--pooled or LOO behavior.",
+    )
+    p.add_argument(
+        "--eval_years",
+        default="",
+        help="Years used for evaluation (metrics + plots). E.g. "
+        "'2011-2018'. Default: all years in the predictions CSV.",
+    )
+    p.add_argument(
+        "--clim_target_dir",
+        default="",
+        help="Folder containing target_{year}.csv files for the "
+        "climatology reference period. Use when --clim_years "
+        "are outside the predictions CSV (typical: historical "
+        "clim vs. future evaluation). The script loads "
+        "observations from these files filtered to the sites "
+        "present in the predictions CSV.",
+    )
+    p.add_argument(
+        "--n_curves",
+        type=int,
+        default=0,
+        help="If > 0, plot climatology-vs-obs annual LAI curves for "
+        "n_curves sites sampled to cover the per-site R² "
+        "distribution. Produces *_clim_lai_curves_all.png "
+        "(grid). When n_curves ≥ 3, also produces "
+        "*_clim_lai_curves.png with 3 representative sites "
+        "(low/medium/high R² within the sampled subset). "
+        "Default 0 = skip curve plots.",
+    )
+    p.add_argument(
+        "--n_curves_seed",
+        type=int,
+        default=42,
+        help="Seed for the n_curves site sampling and the "
+        "tercile picks. Default 42.",
+    )
+    p.add_argument(
+        "--pft_dir",
+        default="",
+        help="PFT pixelset dir (PFTmap_{year}.nc). When set, each "
+        "*_clim_lai_curves_all.png subplot title lists the PFTs "
+        "with fraction ≥ --pft_min_frac.",
+    )
+    p.add_argument(
+        "--pft_min_frac",
+        type=float,
+        default=0.05,
+        help="Show PFTs with fraction ≥ this threshold above each "
+        "curve subplot (default: 0.05 = 5%%).",
+    )
     return p.parse_args()
 
 
@@ -173,9 +205,10 @@ def _load_clim_source_from_targets(
     # index produced by preprocess_targets.py.
     obs_dates = [
         (m, d, datetime.date(2001, m, d).timetuple().tm_yday)
-        for m in range(1, 13) for d in DEKAD_DAYS
+        for m in range(1, 13)
+        for d in DEKAD_DAYS
     ]
-    doys = np.array([t[2] for t in obs_dates], dtype=np.int16)   # (36,)
+    doys = np.array([t[2] for t in obs_dates], dtype=np.int16)  # (36,)
 
     parts = []
     for year in sorted(clim_years):
@@ -195,11 +228,13 @@ def _load_clim_source_from_targets(
         ok = rows >= 0
         vals[ok] = lai[rows[ok]]
         n_sites = len(wanted)
-        df = pd.DataFrame({
-            "site_id": np.repeat(wanted, len(doys)),
-            "doy":     np.tile(doys, n_sites),
-            "lai_obs": vals.reshape(-1),
-        })
+        df = pd.DataFrame(
+            {
+                "site_id": np.repeat(wanted, len(doys)),
+                "doy": np.tile(doys, n_sites),
+                "lai_obs": vals.reshape(-1),
+            }
+        )
         parts.append(df)
 
     if not parts:
@@ -252,10 +287,14 @@ def add_climatology(
                     f"--clim_target_dir to load LAI observations directly "
                     f"from your target_{{year}}.csv archive."
                 )
-            print(f"Loading climatology source from {clim_target_dir!r} for "
-                  f"{len(clim_years)} year(s)...")
+            print(
+                f"Loading climatology source from {clim_target_dir!r} for "
+                f"{len(clim_years)} year(s)..."
+            )
             source = _load_clim_source_from_targets(
-                clim_target_dir, clim_years, df["site_id"].unique(),
+                clim_target_dir,
+                clim_years,
+                df["site_id"].unique(),
             )
         else:
             # Predictions CSV covers the clim years — use it as source.
@@ -269,8 +308,8 @@ def add_climatology(
 
         clim_lookup = (
             source.groupby(["site_id", "doy"])["lai_obs"]
-                  .mean()  # NaN-aware
-                  .reset_index(name="lai_clim")
+            .mean()  # NaN-aware
+            .reset_index(name="lai_clim")
         )
         df = df.merge(clim_lookup, on=["site_id", "doy"], how="left")
         return df
@@ -285,9 +324,9 @@ def add_climatology(
     total = g.transform("sum")
     count = g.transform("count")
     denom = count - 1
-    loo = np.where(denom > 0,
-                   (total - df["lai_obs"]) / denom.replace(0, np.nan),
-                   np.nan)
+    loo = np.where(
+        denom > 0, (total - df["lai_obs"]) / denom.replace(0, np.nan), np.nan
+    )
     df = df.copy()
     df["lai_clim"] = loo
     return df
@@ -311,9 +350,9 @@ def per_site_metrics(df: pd.DataFrame, min_years: int) -> pd.DataFrame:
         if len(sub) < 2:
             continue
 
-        obs   = sub["lai_obs"].values
-        pred  = sub["lai_pred"].values
-        clim  = sub["lai_clim"].values
+        obs = sub["lai_obs"].values
+        pred = sub["lai_pred"].values
+        clim = sub["lai_clim"].values
 
         m_pred = _compute_metrics(pred, obs)
         m_clim = _compute_metrics(clim, obs)
@@ -322,21 +361,23 @@ def per_site_metrics(df: pd.DataFrame, min_years: int) -> pd.DataFrame:
         mse_clim = float(np.mean((clim - obs) ** 2))
         ss = 1.0 - mse_pred / mse_clim if mse_clim > 1e-12 else float("nan")
 
-        rows.append({
-            "site_id"        : site,
-            "n_years"        : n_years,
-            "n_points"       : len(sub),
-            "rmse_model"     : m_pred["rmse"],
-            "rmse_clim"      : m_clim["rmse"],
-            "mae_model"      : m_pred["mae"],
-            "mae_clim"       : m_clim["mae"],
-            "r2_model"       : m_pred["r2"],
-            "r2_clim"        : m_clim["r2"],
-            "bias_model"     : m_pred["bias"],
-            "bias_clim"      : m_clim["bias"],
-            "skill_score"    : ss,
-            "model_beats_clim": bool(mse_pred < mse_clim),
-        })
+        rows.append(
+            {
+                "site_id": site,
+                "n_years": n_years,
+                "n_points": len(sub),
+                "rmse_model": m_pred["rmse"],
+                "rmse_clim": m_clim["rmse"],
+                "mae_model": m_pred["mae"],
+                "mae_clim": m_clim["mae"],
+                "r2_model": m_pred["r2"],
+                "r2_clim": m_clim["r2"],
+                "bias_model": m_pred["bias"],
+                "bias_clim": m_clim["bias"],
+                "skill_score": ss,
+                "model_beats_clim": bool(mse_pred < mse_clim),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -352,9 +393,9 @@ def plot_scatter_comparison(df: pd.DataFrame, filename: str) -> None:
     box containing R² / RMSE / MAE / Bias / N, 1:1 diagonal, equal aspect.
     """
     sub = df[["lai_obs", "lai_pred", "lai_clim"]].dropna()
-    obs   = sub["lai_obs"].values
-    pred  = sub["lai_pred"].values
-    clim  = sub["lai_clim"].values
+    obs = sub["lai_obs"].values
+    pred = sub["lai_pred"].values
+    clim = sub["lai_clim"].values
 
     lo = float(min(obs.min(), pred.min(), clim.min()))
     hi = float(max(obs.max(), pred.max(), clim.max()))
@@ -374,13 +415,11 @@ def plot_scatter_comparison(df: pd.DataFrame, filename: str) -> None:
         (axes[0], pred, m_pred, "Model"),
         (axes[1], clim, m_clim, "Climatology"),
     ]:
-        hb = ax.hexbin(obs, vals, gridsize=70, cmap="viridis",
-                       mincnt=1, bins="log")
+        hb = ax.hexbin(obs, vals, gridsize=70, cmap="viridis", mincnt=1, bins="log")
         cb = fig.colorbar(hb, ax=ax, shrink=0.8)
         cb.set_label("log₁₀(count)")
 
-        ax.plot([axmin, axmax], [axmin, axmax], "k--", lw=1.2,
-                alpha=0.7, label="1:1")
+        ax.plot([axmin, axmax], [axmin, axmax], "k--", lw=1.2, alpha=0.7, label="1:1")
         ax.set_xlim(axmin, axmax)
         ax.set_ylim(axmin, axmax)
         ax.set_aspect("equal")
@@ -392,10 +431,22 @@ def plot_scatter_comparison(df: pd.DataFrame, filename: str) -> None:
             f"Bias = {m['bias']:+.4f}\n"
             f"N    = {m['n']:,}"
         )
-        ax.text(0.03, 0.97, txt, transform=ax.transAxes,
-                va="top", ha="left", family="monospace", fontsize=11,
-                bbox=dict(facecolor="white", edgecolor="lightgray", alpha=0.9,
-                          boxstyle="round,pad=0.4"))
+        ax.text(
+            0.03,
+            0.97,
+            txt,
+            transform=ax.transAxes,
+            va="top",
+            ha="left",
+            family="monospace",
+            fontsize=11,
+            bbox=dict(
+                facecolor="white",
+                edgecolor="lightgray",
+                alpha=0.9,
+                boxstyle="round,pad=0.4",
+            ),
+        )
 
         ax.set_xlabel("Observed LAI")
         ax.set_ylabel(f"{label} LAI")
@@ -415,19 +466,23 @@ def plot_skill_histogram(site_df: pd.DataFrame, filename: str) -> None:
     """Distribution of per-site skill scores."""
     ss = site_df["skill_score"].dropna().values
     n_sites = len(ss)
-    n_win   = int((ss > 0).sum())
-    median  = float(np.median(ss))
+    n_win = int((ss > 0).sum())
+    median = float(np.median(ss))
 
     fig, ax = plt.subplots(figsize=(8, 4.5), constrained_layout=True)
 
     # clip very negative scores for plotting; show real count in title
     plot_ss = np.clip(ss, -1.0, 1.0)
-    ax.hist(plot_ss, bins=60, color="steelblue", edgecolor="white",
-            linewidth=0.4)
+    ax.hist(plot_ss, bins=60, color="steelblue", edgecolor="white", linewidth=0.4)
 
     ax.axvline(0, color="black", linewidth=1)
-    ax.axvline(median, color="red", linewidth=1.2, linestyle="--",
-               label=f"median = {median:+.3f}")
+    ax.axvline(
+        median,
+        color="red",
+        linewidth=1.2,
+        linestyle="--",
+        label=f"median = {median:+.3f}",
+    )
 
     ax.set_xlim(-1.05, 1.05)
     ax.set_xlabel("Skill Score   (1 − MSE_model / MSE_clim)")
@@ -448,6 +503,7 @@ def _load_pft_fracs(pft_dir: str, year: int, site_ids) -> dict:
         return {}
     import xarray as xr
     from phenonn.utils.config import PFT_FNAME
+
     path = os.path.join(pft_dir, PFT_FNAME.format(year=year))
     if not os.path.exists(path):
         print(f"  [n_curves] PFT file not found ({path}) — titles without PFT.")
@@ -455,7 +511,7 @@ def _load_pft_fracs(pft_dir: str, year: int, site_ids) -> dict:
     ds = xr.open_dataset(path, engine="netcdf4", decode_times=False)
     da = ds["pft_frac"] if "pft_frac" in ds.data_vars else ds[list(ds.data_vars)[0]]
     all_sites = np.asarray(ds["site_id"].values).astype(str)
-    arr = da.transpose("pft", "site").values.astype(np.float32)   # (N_PFT, n_all)
+    arr = da.transpose("pft", "site").values.astype(np.float32)  # (N_PFT, n_all)
     ds.close()
     idx_of = {s: i for i, s in enumerate(all_sites)}
     out = {}
@@ -537,19 +593,23 @@ def plot_clim_lai_curves(
         picks_idx = [total // 2]
     else:
         picks_idx = np.linspace(0, total - 1, n_take).round().astype(int).tolist()
-        picks_idx = sorted(set(picks_idx))   # de-dup if total < n_curves
+        picks_idx = sorted(set(picks_idx))  # de-dup if total < n_curves
 
     picked = [sorted_sites[i][0] for i in picks_idx]
     sub_sites = sub[sub["site_id"].isin(picked)].copy()
 
-    print(f"  [n_curves] Plotting {len(picked)} site(s) "
-          f"(R² range: {sorted_sites[picks_idx[0]][1]:+.3f} → "
-          f"{sorted_sites[picks_idx[-1]][1]:+.3f})")
+    print(
+        f"  [n_curves] Plotting {len(picked)} site(s) "
+        f"(R² range: {sorted_sites[picks_idx[0]][1]:+.3f} → "
+        f"{sorted_sites[picks_idx[-1]][1]:+.3f})"
+    )
 
     # ── PFT fractions per picked site (for the subplot titles) ──
     from phenonn.utils.config import PFT_NAMES
-    pft_by_site = (_load_pft_fracs(pft_dir, pft_year, picked)
-                   if pft_year is not None else {})
+
+    pft_by_site = (
+        _load_pft_fracs(pft_dir, pft_year, picked) if pft_year is not None else {}
+    )
 
     # ── Grid figure ──
     plot_gcc_curves_all(
@@ -592,44 +652,70 @@ def plot_skill_per_doy(df: pd.DataFrame, filename: str) -> None:
 
     rows = []
     for doy, g in sub.groupby("doy"):
-        obs  = g["lai_obs"].values
+        obs = g["lai_obs"].values
         pred = g["lai_pred"].values
         clim = g["lai_clim"].values
         mse_pred = float(np.mean((pred - obs) ** 2))
         mse_clim = float(np.mean((clim - obs) ** 2))
         ss = 1.0 - mse_pred / mse_clim if mse_clim > 1e-12 else np.nan
-        rows.append({
-            "doy"     : int(doy),
-            "ss"      : ss,
-            "rmse_model": float(np.sqrt(mse_pred)),
-            "rmse_clim" : float(np.sqrt(mse_clim)),
-        })
+        rows.append(
+            {
+                "doy": int(doy),
+                "ss": ss,
+                "rmse_model": float(np.sqrt(mse_pred)),
+                "rmse_clim": float(np.sqrt(mse_clim)),
+            }
+        )
     per_doy = pd.DataFrame(rows).sort_values("doy")
 
     fig, (ax_rmse, ax_ss) = plt.subplots(
-        2, 1, figsize=(9, 6), sharex=True,
+        2,
+        1,
+        figsize=(9, 6),
+        sharex=True,
         gridspec_kw={"height_ratios": [1.2, 1.0], "hspace": 0.1},
         constrained_layout=True,
     )
 
-    ax_rmse.plot(per_doy["doy"], per_doy["rmse_model"],
-                 color="darkorange", linewidth=1.6, label="Model")
-    ax_rmse.plot(per_doy["doy"], per_doy["rmse_clim"],
-                 color="steelblue", linewidth=1.6, linestyle="--",
-                 label="Climatology")
+    ax_rmse.plot(
+        per_doy["doy"],
+        per_doy["rmse_model"],
+        color="darkorange",
+        linewidth=1.6,
+        label="Model",
+    )
+    ax_rmse.plot(
+        per_doy["doy"],
+        per_doy["rmse_clim"],
+        color="steelblue",
+        linewidth=1.6,
+        linestyle="--",
+        label="Climatology",
+    )
     ax_rmse.set_ylabel("RMSE")
     ax_rmse.set_title("RMSE per observation DOY — pooled across sites")
     ax_rmse.legend()
 
     ax_ss.axhline(0, color="black", linewidth=0.8)
-    ax_ss.fill_between(per_doy["doy"], 0, per_doy["ss"],
-                       where=per_doy["ss"] > 0,
-                       color="green", alpha=0.25, label="model wins")
-    ax_ss.fill_between(per_doy["doy"], 0, per_doy["ss"],
-                       where=per_doy["ss"] <= 0,
-                       color="red",   alpha=0.25, label="clim wins")
-    ax_ss.plot(per_doy["doy"], per_doy["ss"],
-               color="black", linewidth=1.2)
+    ax_ss.fill_between(
+        per_doy["doy"],
+        0,
+        per_doy["ss"],
+        where=per_doy["ss"] > 0,
+        color="green",
+        alpha=0.25,
+        label="model wins",
+    )
+    ax_ss.fill_between(
+        per_doy["doy"],
+        0,
+        per_doy["ss"],
+        where=per_doy["ss"] <= 0,
+        color="red",
+        alpha=0.25,
+        label="clim wins",
+    )
+    ax_ss.plot(per_doy["doy"], per_doy["ss"], color="black", linewidth=1.2)
     ax_ss.set_xlabel("Day of year")
     ax_ss.set_ylabel("Skill Score")
     ax_ss.legend(loc="lower left")
@@ -643,9 +729,11 @@ def plot_skill_per_doy(df: pd.DataFrame, filename: str) -> None:
 def main():
     args = parse_args()
 
-    base = (args.output.rstrip("/\\") if args.output
-            else os.path.join(os.path.dirname(os.path.abspath(args.predictions)),
-                              "clim"))
+    base = (
+        args.output.rstrip("/\\")
+        if args.output
+        else os.path.join(os.path.dirname(os.path.abspath(args.predictions)), "clim")
+    )
 
     clim_years = _parse_year_spec(args.clim_years)
     eval_years = _parse_year_spec(args.eval_years)
@@ -659,8 +747,10 @@ def main():
     df = pd.read_csv(args.predictions)
     n_sites = df["site_id"].nunique()
     n_years = df["year"].nunique()
-    print(f"Loaded {len(df):,} rows — {n_sites} sites, {n_years} years "
-          f"({sorted(df['year'].unique())})")
+    print(
+        f"Loaded {len(df):,} rows — {n_sites} sites, {n_years} years "
+        f"({sorted(df['year'].unique())})"
+    )
     print(f"Climatology mode: {mode}")
     if eval_years is not None:
         print(f"Eval years      : {sorted(eval_years)}")
@@ -690,9 +780,9 @@ def main():
 
     # ── Global metrics ──
     sub = df[["lai_obs", "lai_pred", "lai_clim"]].dropna()
-    obs   = sub["lai_obs"].values
-    pred  = sub["lai_pred"].values
-    clim  = sub["lai_clim"].values
+    obs = sub["lai_obs"].values
+    pred = sub["lai_pred"].values
+    clim = sub["lai_clim"].values
 
     m_pred = _compute_metrics(pred, obs)
     m_clim = _compute_metrics(clim, obs)
@@ -701,12 +791,18 @@ def main():
     ss_global = 1.0 - mse_pred / mse_clim if mse_clim > 1e-12 else float("nan")
 
     print("\n── Global metrics ────────────────────────────────────────")
-    print(f"  Model         RMSE={m_pred['rmse']:.4f}  MAE={m_pred['mae']:.4f}  "
-          f"R²={m_pred['r2']:+.4f}  bias={m_pred['bias']:+.4f}")
-    print(f"  Climatology   RMSE={m_clim['rmse']:.4f}  MAE={m_clim['mae']:.4f}  "
-          f"R²={m_clim['r2']:+.4f}  bias={m_clim['bias']:+.4f}")
-    print(f"  Skill Score   {ss_global:+.4f}   "
-          f"({'✓ model beats climatology' if ss_global > 0 else '✗ model does NOT beat climatology'})")
+    print(
+        f"  Model         RMSE={m_pred['rmse']:.4f}  MAE={m_pred['mae']:.4f}  "
+        f"R²={m_pred['r2']:+.4f}  bias={m_pred['bias']:+.4f}"
+    )
+    print(
+        f"  Climatology   RMSE={m_clim['rmse']:.4f}  MAE={m_clim['mae']:.4f}  "
+        f"R²={m_clim['r2']:+.4f}  bias={m_clim['bias']:+.4f}"
+    )
+    print(
+        f"  Skill Score   {ss_global:+.4f}   "
+        f"({'✓ model beats climatology' if ss_global > 0 else '✗ model does NOT beat climatology'})"
+    )
 
     # ── Per-site metrics ──
     site_df = per_site_metrics(df, min_years=args.min_years)
@@ -718,7 +814,9 @@ def main():
         print(f"  Sites evaluated         : {n_tot}")
         print(f"  Sites where model wins  : {n_win} ({100 * n_win / n_tot:.1f}%)")
         print(f"  Median skill score      : {med_ss:+.4f}")
-        print(f"  Mean   skill score      : {float(site_df['skill_score'].mean()):+.4f}")
+        print(
+            f"  Mean   skill score      : {float(site_df['skill_score'].mean()):+.4f}"
+        )
         print(f"  Median MAE  (model)     : {float(site_df['mae_model'].median()):.4f}")
         print(f"  Median MAE  (clim)      : {float(site_df['mae_clim'].median()):.4f}")
 
@@ -734,8 +832,12 @@ def main():
 
     if args.n_curves > 0:
         plot_clim_lai_curves(
-            df, n_curves=args.n_curves, base=base, seed=args.n_curves_seed,
-            pft_dir=args.pft_dir, pft_year=int(df["year"].min()),
+            df,
+            n_curves=args.n_curves,
+            base=base,
+            seed=args.n_curves_seed,
+            pft_dir=args.pft_dir,
+            pft_year=int(df["year"].min()),
             pft_min_frac=args.pft_min_frac,
         )
 

@@ -66,7 +66,7 @@ import json
 import os
 import re
 import time
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -75,16 +75,24 @@ from torch.utils.data import DataLoader, Dataset
 
 from phenonn.utils.config import PFT_START
 from phenonn.data.lai_dataset import (
-    RamLAIDataset, load_co2_lut, load_parent01_map, load_selected_pixels,
+    RamLAIDataset,
+    load_co2_lut,
+    load_parent01_map,
+    load_selected_pixels,
 )
 from phenonn.utils.evaluater import make_loss_fn
 from phenonn.utils.wrappers import Every10DaysWrapper, permuteWrapper
 from phenonn.utils.model_loader import (
-    _resolve_d_model, _ff1, _ff2, _nl1, _do1, _do2,
+    _resolve_d_model,
+    _ff1,
+    _ff2,
+    _nl1,
+    _do1,
+    _do2,
 )
 from phenonn.models.rnn import RNN_LSTM
 from phenonn.models.aelstm import AELSTM
-from phenonn.models.attn_lstm import AttnLSTM
+from legacy.models.attn_lstm import AttnLSTM
 from phenonn.models.bitransformer import BiTransformerV2
 from phenonn.training import train_full_ram as T
 from phenonn.utils.logger import Logger
@@ -101,7 +109,8 @@ def _read_order(greedy_dir: str) -> List[int]:
     path = os.path.join(greedy_dir, ORDER_FILE)
     if not os.path.exists(path):
         raise FileNotFoundError(
-            f"No --pft_order given and no {ORDER_FILE} in {greedy_dir}.")
+            f"No --pft_order given and no {ORDER_FILE} in {greedy_dir}."
+        )
     order: List[int] = []
     with open(path) as f:
         for line in f:
@@ -122,37 +131,69 @@ def build_pure_base(args) -> torch.nn.Module:
     t = args.type.lower()
     ch = PFT_START
     if t == "lstm":
-        base = RNN_LSTM(feature_channel=ch, output_channel=1,
-                        hidden_size=args.hidden_size, num_layers=args.num_layers)
+        base = RNN_LSTM(
+            feature_channel=ch,
+            output_channel=1,
+            hidden_size=args.hidden_size,
+            num_layers=args.num_layers,
+        )
     elif t == "aelstm":
-        base = AELSTM(feature_channel=ch, output_channel=1,
-                      hidden_size=args.hidden_size, num_layers=args.num_layers,
-                      n_attn_blocks=args.n_attn_blocks, nhead=args.nhead,
-                      ff_expansion=args.forward_expansion,
-                      dropout=_do2(args), dropout_att=args.dropout_att,
-                      seq_length=args.seq_length)
+        base = AELSTM(
+            feature_channel=ch,
+            output_channel=1,
+            hidden_size=args.hidden_size,
+            num_layers=args.num_layers,
+            n_attn_blocks=args.n_attn_blocks,
+            nhead=args.nhead,
+            ff_expansion=args.forward_expansion,
+            dropout=_do2(args),
+            dropout_att=args.dropout_att,
+            seq_length=args.seq_length,
+        )
     elif t == "bitransformer_v2":
-        base = permuteWrapper(BiTransformerV2(
-            input_dim=ch, output_dim=1,
-            d_model=_resolve_d_model(args), d_model2=args.hidden_size, n_pft=0,
-            stress_dim=args.stress_dim,
-            nr_blocks_stage1=_nl1(args), nr_blocks_stage2=args.num_layers,
-            nhead=args.nhead, feed_forward_trans=_ff1(args),
-            feed_forward_encoder=_ff2(args),
-            dropout_trans=_do1(args), dropout_encoder=_do2(args),
-            seq_length=args.seq_length, causal=True))
+        base = permuteWrapper(
+            BiTransformerV2(
+                input_dim=ch,
+                output_dim=1,
+                d_model=_resolve_d_model(args),
+                d_model2=args.hidden_size,
+                n_pft=0,
+                stress_dim=args.stress_dim,
+                nr_blocks_stage1=_nl1(args),
+                nr_blocks_stage2=args.num_layers,
+                nhead=args.nhead,
+                feed_forward_trans=_ff1(args),
+                feed_forward_encoder=_ff2(args),
+                dropout_trans=_do1(args),
+                dropout_encoder=_do2(args),
+                seq_length=args.seq_length,
+                causal=True,
+            )
+        )
     elif t == "attnlstm":
-        base = permuteWrapper(AttnLSTM(
-            input_dim=ch, output_dim=1,
-            d_model=_resolve_d_model(args), lstm_hidden=args.hidden_size, n_pft=0,
-            stress_dim=args.stress_dim,
-            nr_blocks_stage1=_nl1(args), lstm_layers=args.num_layers,
-            nhead=args.nhead, feed_forward_trans=_ff1(args),
-            dropout_trans=_do1(args), dropout_lstm=_do2(args),
-            seq_length=args.seq_length, causal=True))
+        base = permuteWrapper(
+            AttnLSTM(
+                input_dim=ch,
+                output_dim=1,
+                d_model=_resolve_d_model(args),
+                lstm_hidden=args.hidden_size,
+                n_pft=0,
+                stress_dim=args.stress_dim,
+                nr_blocks_stage1=_nl1(args),
+                lstm_layers=args.num_layers,
+                nhead=args.nhead,
+                feed_forward_trans=_ff1(args),
+                dropout_trans=_do1(args),
+                dropout_lstm=_do2(args),
+                seq_length=args.seq_length,
+                causal=True,
+            )
+        )
     else:
-        raise SystemExit("greedy NN supports --type lstm/aelstm/attnlstm/"
-                         f"bitransformer_v2, got {args.type!r}")
+        raise SystemExit(
+            "greedy NN supports --type lstm/aelstm/attnlstm/"
+            f"bitransformer_v2, got {args.type!r}"
+        )
     return Every10DaysWrapper(base)
 
 
@@ -169,14 +210,17 @@ class _ResidualView(Dataset):
         return len(self.kept)
 
     def __getitem__(self, i: int):
-        feat, _ = self.ds[self.kept[i]]              # (FEATURE_CHANNELS, seq)
+        feat, _ = self.ds[self.kept[i]]  # (FEATURE_CHANNELS, seq)
         return feat[:PFT_START].contiguous(), self.resid[i]
 
 
 def _residual_targets(
-    ds: RamLAIDataset, pft_num: int,
+    ds: RamLAIDataset,
+    pft_num: int,
     prev_models: List[Tuple[int, torch.nn.Module]],
-    frac_floor: float, device, batch_size: int,
+    frac_floor: float,
+    device,
+    batch_size: int,
 ) -> Tuple[List[int], torch.Tensor]:
     """Compute residual targets for every kept sample of `ds`.
 
@@ -205,8 +249,8 @@ def _residual_targets(
             loc.append(idx)
         if not loc:
             continue
-        W = torch.stack(feats).to(device)            # (b, PFT_START, seq)
-        Y = torch.stack(tgts).to(device)             # (b, 1, 36)
+        W = torch.stack(feats).to(device)  # (b, PFT_START, seq)
+        Y = torch.stack(tgts).to(device)  # (b, 1, 36)
         contrib = torch.zeros_like(Y)
         with torch.no_grad():
             for num, mdl in prev_models:
@@ -216,8 +260,7 @@ def _residual_targets(
         fkt = torch.tensor(fk, device=device).view(-1, 1, 1)
         resid_chunks.append(((Y - contrib) / fkt).cpu())
         kept.extend(loc)
-    resid = (torch.cat(resid_chunks, 0) if resid_chunks
-             else torch.empty(0, 1, 36))
+    resid = torch.cat(resid_chunks, 0) if resid_chunks else torch.empty(0, 1, 36)
     return kept, resid
 
 
@@ -242,20 +285,34 @@ def _split_pool(args, pool: List[str]) -> Tuple[List[str], List[str]]:
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(add_help=False)
-    ap.add_argument("--greedy_dir", required=True,
-                    help="Dir with selected_pixels_PFT{n}.nc (+ extraction_order.txt).")
-    ap.add_argument("--pft_order", default="",
-                    help="Comma ORCHIDEE PFT numbers, e.g. '4,10,6'. "
-                         "Empty → read greedy_dir/extraction_order.txt.")
-    ap.add_argument("--frac_floor", type=float, default=0.05,
-                    help="Skip rows whose current-PFT fraction is below this.")
-    ap.add_argument("--max_sites", type=int, default=0,
-                    help="Cap each per-PFT pool to this many sites (random, "
-                         "seeded subsample). 0 = whole pool. Guards RAM: a "
-                         "widespread PFT's pure pool can reach >100k sites, "
-                         "which OOMs when loaded × all years.")
+    ap.add_argument(
+        "--greedy_dir",
+        required=True,
+        help="Dir with selected_pixels_PFT{n}.nc (+ extraction_order.txt).",
+    )
+    ap.add_argument(
+        "--pft_order",
+        default="",
+        help="Comma ORCHIDEE PFT numbers, e.g. '4,10,6'. "
+        "Empty → read greedy_dir/extraction_order.txt.",
+    )
+    ap.add_argument(
+        "--frac_floor",
+        type=float,
+        default=0.05,
+        help="Skip rows whose current-PFT fraction is below this.",
+    )
+    ap.add_argument(
+        "--max_sites",
+        type=int,
+        default=0,
+        help="Cap each per-PFT pool to this many sites (random, "
+        "seeded subsample). 0 = whole pool. Guards RAM: a "
+        "widespread PFT's pure pool can reach >100k sites, "
+        "which OOMs when loaded × all years.",
+    )
     known, rest = ap.parse_known_args(argv)
-    args = T.parse_args(rest)                      # standard train_full_ram CLI
+    args = T.parse_args(rest)  # standard train_full_ram CLI
     args.greedy_dir = known.greedy_dir
     args.pft_order = known.pft_order
     args.frac_floor = known.frac_floor
@@ -274,11 +331,17 @@ def main():
 
     exp_dir = os.path.join(args.output_dir, args.experiment)
     FileUtils.makedir(exp_dir)
-    logger = Logger(console_output=True, file_output=True,
-                    log_file=os.path.join(exp_dir, "train.log"))
+    logger = Logger(
+        console_output=True,
+        file_output=True,
+        log_file=os.path.join(exp_dir, "train.log"),
+    )
 
-    order = ([int(x) for x in args.pft_order.split(",") if x.strip()]
-             if args.pft_order else _read_order(args.greedy_dir))
+    order = (
+        [int(x) for x in args.pft_order.split(",") if x.strip()]
+        if args.pft_order
+        else _read_order(args.greedy_dir)
+    )
     logger.show_header(f"Greedy pure-PFT NN — {args.type}  order={order}")
 
     train_years = T.parse_year_list(args.train_years)
@@ -286,8 +349,10 @@ def main():
     if not train_years or not val_years:
         raise ValueError("--train_years and --val_years are required.")
     if args.val_fraction_of_grid >= 100 and set(train_years) & set(val_years):
-        raise ValueError("OVERLAP mode (val_fraction_of_grid>=100) needs "
-                         "disjoint train/val years.")
+        raise ValueError(
+            "OVERLAP mode (val_fraction_of_grid>=100) needs "
+            "disjoint train/val years."
+        )
 
     norm_stats = None
     if args.stats_path:
@@ -296,18 +361,27 @@ def main():
         with open(args.stats_path) as f:
             norm_stats = json.load(f)
     co2_lut = load_co2_lut(args.co2_path) if args.co2_path else None
-    parent_map = (load_parent01_map(args.parent_map)
-                  if getattr(args, "parent_map", "") else None)
+    parent_map = (
+        load_parent01_map(args.parent_map) if getattr(args, "parent_map", "") else None
+    )
 
     def _make_ds(site_ids, years, tag):
-        logger.start_task(f"Loading {tag}", f"{len(site_ids):,} sites × {len(years)} yr")
+        logger.start_task(
+            f"Loading {tag}", f"{len(site_ids):,} sites × {len(years)} yr"
+        )
         return RamLAIDataset(
-            features_dir=args.features_dir, target_dir=args.target_dir,
-            pft_dir=args.pft_dir, years=years, site_ids=site_ids,
-            seq_length=args.seq_length, norm_stats=norm_stats,
-            anomaly_clim=None, co2_lut=co2_lut,
-            normalize_lai=False,                    # residual scheme needs RAW LAI
-            verbose=True, threaded_read=args.threaded_feature_read,
+            features_dir=args.features_dir,
+            target_dir=args.target_dir,
+            pft_dir=args.pft_dir,
+            years=years,
+            site_ids=site_ids,
+            seq_length=args.seq_length,
+            norm_stats=norm_stats,
+            anomaly_clim=None,
+            co2_lut=co2_lut,
+            normalize_lai=False,  # residual scheme needs RAW LAI
+            verbose=True,
+            threaded_read=args.threaded_feature_read,
             parent_map=parent_map,
         )
 
@@ -317,48 +391,67 @@ def main():
     for step, pft_num in enumerate(order, start=1):
         sel_path = os.path.join(args.greedy_dir, PFT_FILE.format(n=pft_num))
         if not os.path.exists(sel_path):
-            logger.warning(f"[step {step}] PFT{pft_num} — missing "
-                           f"{os.path.basename(sel_path)}, skipped")
+            logger.warning(
+                f"[step {step}] PFT{pft_num} — missing "
+                f"{os.path.basename(sel_path)}, skipped"
+            )
             continue
         pool = load_selected_pixels(sel_path)
         if args.max_sites and len(pool) > args.max_sites:
             rng = np.random.RandomState(args.seed + pft_num)
             capped = rng.choice(pool, size=args.max_sites, replace=False)
             pool = sorted(capped.tolist())
-            logger.info(f"  PFT{pft_num} pool capped {args.max_sites:,} "
-                        f"(--max_sites)")
+            logger.info(
+                f"  PFT{pft_num} pool capped {args.max_sites:,} " f"(--max_sites)"
+            )
         train_sites, val_sites = _split_pool(args, pool)
-        logger.info(f"\n[step {step}] PFT{pft_num}  pool={len(pool):,} "
-                    f"(train={len(train_sites):,}, val={len(val_sites):,})")
+        logger.info(
+            f"\n[step {step}] PFT{pft_num}  pool={len(pool):,} "
+            f"(train={len(train_sites):,}, val={len(val_sites):,})"
+        )
 
         train_ds = _make_ds(train_sites, train_years, f"PFT{pft_num}-train")
         val_ds = _make_ds(val_sites, val_years, f"PFT{pft_num}-val")
 
         kept_tr, resid_tr = _residual_targets(
-            train_ds, pft_num, prev_models, args.frac_floor, device, args.batch_size)
+            train_ds, pft_num, prev_models, args.frac_floor, device, args.batch_size
+        )
         kept_va, resid_va = _residual_targets(
-            val_ds, pft_num, prev_models, args.frac_floor, device, args.batch_size)
-        logger.info(f"  usable samples: train {len(kept_tr):,}/{len(train_ds):,}  "
-                    f"val {len(kept_va):,}/{len(val_ds):,}  "
-                    f"(frac<{args.frac_floor} dropped)")
+            val_ds, pft_num, prev_models, args.frac_floor, device, args.batch_size
+        )
+        logger.info(
+            f"  usable samples: train {len(kept_tr):,}/{len(train_ds):,}  "
+            f"val {len(kept_va):,}/{len(val_ds):,}  "
+            f"(frac<{args.frac_floor} dropped)"
+        )
         if not kept_tr or not kept_va:
             logger.warning(f"  → PFT{pft_num} skipped (empty after masking).")
             continue
 
         train_loader = DataLoader(
-            _ResidualView(train_ds, kept_tr, resid_tr), batch_size=args.batch_size,
-            shuffle=True, num_workers=args.num_workers, pin_memory=True)
+            _ResidualView(train_ds, kept_tr, resid_tr),
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
         val_loader = DataLoader(
-            _ResidualView(val_ds, kept_va, resid_va), batch_size=args.batch_size,
-            shuffle=False, num_workers=args.num_workers, pin_memory=True)
+            _ResidualView(val_ds, kept_va, resid_va),
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True,
+        )
 
         model = build_pure_base(args).to(device)
         n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
         logger.info(f"  model: {args.type} meteo-only→1  ({n_params:,} params)")
-        optimizer = optim.Adam(model.parameters(), lr=args.learning_rate,
-                               weight_decay=args.weight_decay)
+        optimizer = optim.Adam(
+            model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+        )
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=5)
+            optimizer, mode="min", factor=0.5, patience=5
+        )
         criterion = make_loss_fn(args)
 
         best_val = float("inf")
@@ -368,15 +461,31 @@ def main():
         t0 = time.time()
         for epoch in range(1, args.num_epochs + 1):
             train_loss = T.train_one_epoch(
-                model, train_loader, criterion, optimizer, device,
-                args.max_grad_norm, use_amp=args.amp, logger=logger, epoch=epoch)
+                model,
+                train_loader,
+                criterion,
+                optimizer,
+                device,
+                args.max_grad_norm,
+                use_amp=args.amp,
+                logger=logger,
+                epoch=epoch,
+            )
             val_loss, val_rmse, val_r2 = T.validate(
-                model, val_loader, criterion, device, use_amp=args.amp,
-                logger=logger, epoch=epoch)
+                model,
+                val_loader,
+                criterion,
+                device,
+                use_amp=args.amp,
+                logger=logger,
+                epoch=epoch,
+            )
             scheduler.step(val_loss)
-            logger.info(f"  PFT{pft_num} epoch {epoch:3d}/{args.num_epochs}  "
-                        f"train={train_loss:.6f}  val={val_loss:.6f}  "
-                        f"RMSE={val_rmse:.5f}  R²={val_r2:.4f}")
+            logger.info(
+                f"  PFT{pft_num} epoch {epoch:3d}/{args.num_epochs}  "
+                f"train={train_loss:.6f}  val={val_loss:.6f}  "
+                f"RMSE={val_rmse:.5f}  R²={val_r2:.4f}"
+            )
             if val_loss < best_val:
                 best_val, best_epoch, no_improve = val_loss, epoch, 0
                 best_state = copy.deepcopy(model.state_dict())
@@ -393,42 +502,54 @@ def main():
         prev_models.append((pft_num, model))
 
         model_path = os.path.join(exp_dir, f"model_PFT{pft_num}.pth")
-        torch.save({
-            "model_state_dict": best_state,
-            "model_kind":       "nn_greedy_pure_pft",
-            "type":             args.type,
-            "pft_orchidee":     pft_num,
-            "step":             step,
-            "feature_channels": PFT_START,
-            "residual":         "target_k = (LAI - sum_{j<k} frac_j*m_j)/frac_k",
-            "normalize_lai":    False,
-            "norm_stats":       norm_stats,
-            "co2_lut":          co2_lut,
-            "train_years":      train_years,
-            "val_years":        val_years,
-            "args":             vars(args),
-        }, model_path)
-        logger.success(f"  PFT{pft_num} done in {time.time()-t0:.1f}s  "
-                       f"best_val={best_val:.6f}@{best_epoch} → {os.path.basename(model_path)}")
-        meta_pft.append({
-            "step": step, "pft_orchidee": pft_num,
-            "model_file": os.path.basename(model_path),
-            "n_train": len(kept_tr), "n_val": len(kept_va),
-            "best_epoch": best_epoch, "best_val_loss": best_val,
-        })
+        torch.save(
+            {
+                "model_state_dict": best_state,
+                "model_kind": "nn_greedy_pure_pft",
+                "type": args.type,
+                "pft_orchidee": pft_num,
+                "step": step,
+                "feature_channels": PFT_START,
+                "residual": "target_k = (LAI - sum_{j<k} frac_j*m_j)/frac_k",
+                "normalize_lai": False,
+                "norm_stats": norm_stats,
+                "co2_lut": co2_lut,
+                "train_years": train_years,
+                "val_years": val_years,
+                "args": vars(args),
+            },
+            model_path,
+        )
+        logger.success(
+            f"  PFT{pft_num} done in {time.time()-t0:.1f}s  "
+            f"best_val={best_val:.6f}@{best_epoch} → {os.path.basename(model_path)}"
+        )
+        meta_pft.append(
+            {
+                "step": step,
+                "pft_orchidee": pft_num,
+                "model_file": os.path.basename(model_path),
+                "n_train": len(kept_tr),
+                "n_val": len(kept_va),
+                "best_epoch": best_epoch,
+                "best_val_loss": best_val,
+            }
+        )
 
     if not meta_pft:
         raise RuntimeError("No PFT model trained — check --greedy_dir / order.")
 
     meta = {
-        "model_kind":   "nn_greedy_pure_pft",
-        "type":         args.type,
-        "residual":     "target_k = (LAI - sum_{j<k} frac_j*m_j(weather))/frac_k",
+        "model_kind": "nn_greedy_pure_pft",
+        "type": args.type,
+        "residual": "target_k = (LAI - sum_{j<k} frac_j*m_j(weather))/frac_k",
         "pft_channels_in_features": False,
-        "order":        [m["pft_orchidee"] for m in meta_pft],
-        "frac_floor":   args.frac_floor,
-        "train_years":  train_years, "val_years": val_years,
-        "per_pft":      meta_pft, "args": vars(args),
+        "order": [m["pft_orchidee"] for m in meta_pft],
+        "frac_floor": args.frac_floor,
+        "train_years": train_years,
+        "val_years": val_years,
+        "per_pft": meta_pft,
+        "args": vars(args),
     }
     with open(os.path.join(exp_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=2, default=str)

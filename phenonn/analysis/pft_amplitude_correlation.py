@@ -44,12 +44,11 @@ Usage
     python -m plot_diagnositcs.pft_amplitude_correlation \\
         --predictions runs_final/exp/predictions.csv \\
         --pft_dir     /data/sbarbu/pft \\
-        --output_dir  plot_diagnositcs/pft_diag
+        --output_dir  runs/pft_diag
 """
 
 import argparse
 import math
-import os
 from pathlib import Path
 from typing import Dict
 
@@ -57,6 +56,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -74,8 +74,7 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
     pftK_frac variables, or a single 3-D pft variable.
     """
     rename = {}
-    for src, dst in [("lat", "latitude"), ("lon", "longitude"),
-                     ("veget", "pft")]:
+    for src, dst in [("lat", "latitude"), ("lon", "longitude"), ("veget", "pft")]:
         if src in ds.coords or src in ds.dims:
             rename[src] = dst
     if rename:
@@ -90,8 +89,7 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
     pft_named = [f"pft{k}_frac" for k in range(1, N_PFT + 1)]
     if all(v in ds.data_vars for v in pft_named):
         return xr.concat(
-            [ds[v].expand_dims(pft=[k - 1])
-             for k, v in enumerate(pft_named, start=1)],
+            [ds[v].expand_dims(pft=[k - 1]) for k, v in enumerate(pft_named, start=1)],
             dim="pft",
         )
 
@@ -99,9 +97,7 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
         if cand in ds.data_vars and "pft" in ds[cand].dims:
             return ds[cand]
 
-    raise ValueError(
-        f"Could not detect a PFT layout in {list(ds.data_vars)}."
-    )
+    raise ValueError(f"Could not detect a PFT layout in {list(ds.data_vars)}.")
 
 
 # ── PFT assignment ────────────────────────────────────────────────────────────
@@ -149,13 +145,13 @@ def curve_metrics(obs: np.ndarray, pred: np.ndarray) -> pd.DataFrame:
     h_obs = np.fft.rfft(obs, axis=1)
     h_pred = np.fft.rfft(pred, axis=1)
 
-    amp_obs = np.abs(h_obs[:, 1]) * 2.0 / n     # amplitude of the annual cosine
+    amp_obs = np.abs(h_obs[:, 1]) * 2.0 / n  # amplitude of the annual cosine
     amp_pred = np.abs(h_pred[:, 1]) * 2.0 / n
     with np.errstate(divide="ignore", invalid="ignore"):
         amp_ratio = np.where(amp_obs > 1e-9, amp_pred / amp_obs, np.nan)
 
     dphi = np.angle(h_pred[:, 1]) - np.angle(h_obs[:, 1])
-    dphi = (dphi + np.pi) % (2 * np.pi) - np.pi   # wrap to (-pi, pi]
+    dphi = (dphi + np.pi) % (2 * np.pi) - np.pi  # wrap to (-pi, pi]
     # Harmonic-1 phase difference, expressed in dekads. Only its magnitude is
     # meaningful here (the summary reports the median |.|): it is the timing
     # offset of the annual peak between pred and obs.
@@ -164,17 +160,19 @@ def curve_metrics(obs: np.ndarray, pred: np.ndarray) -> pd.DataFrame:
     o = obs - obs.mean(axis=1, keepdims=True)
     p = pred - pred.mean(axis=1, keepdims=True)
     num = (o * p).sum(axis=1)
-    den = np.sqrt((o ** 2).sum(axis=1) * (p ** 2).sum(axis=1))
+    den = np.sqrt((o**2).sum(axis=1) * (p**2).sum(axis=1))
     with np.errstate(divide="ignore", invalid="ignore"):
         pearson = np.where(den > 1e-12, num / den, np.nan)
 
-    return pd.DataFrame({
-        "amp_obs": amp_obs,
-        "amp_pred": amp_pred,
-        "amp_ratio": amp_ratio,
-        "phase_shift_dekads": phase_shift_dekads,
-        "pearson": pearson,
-    })
+    return pd.DataFrame(
+        {
+            "amp_obs": amp_obs,
+            "amp_pred": amp_pred,
+            "amp_ratio": amp_ratio,
+            "phase_shift_dekads": phase_shift_dekads,
+            "pearson": pearson,
+        }
+    )
 
 
 def classify(r_med: float, ratio_med: float) -> str:
@@ -195,8 +193,9 @@ def plot_mean_curves(obs, pred, pft_of_row, doy, present, out_path):
     """Small multiples: mean observed vs mean predicted annual curve per PFT."""
     ncol = 4
     nrow = math.ceil(len(present) / ncol)
-    fig, axes = plt.subplots(nrow, ncol, figsize=(4.0 * ncol, 3.0 * nrow),
-                             squeeze=False)
+    fig, axes = plt.subplots(
+        nrow, ncol, figsize=(4.0 * ncol, 3.0 * nrow), squeeze=False
+    )
     for ax in axes.ravel():
         ax.axis("off")
     for i, pft in enumerate(present):
@@ -210,8 +209,7 @@ def plot_mean_curves(obs, pred, pft_of_row, doy, present, out_path):
         ax.tick_params(labelsize=8)
         if i == 0:
             ax.legend(fontsize=8)
-    fig.suptitle("Mean annual LAI curve per dominant PFT — obs vs pred",
-                 fontsize=12)
+    fig.suptitle("Mean annual LAI curve per dominant PFT — obs vs pred", fontsize=12)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     fig.savefig(out_path, dpi=130)
     plt.close(fig)
@@ -250,20 +248,29 @@ def plot_summary_bars(summary: pd.DataFrame, out_path):
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--predictions", required=True,
-                   help="CSV produced by prediction.predict")
-    p.add_argument("--pft_dir", required=True,
-                   help="Folder of PFTmap_{year}.nc")
-    p.add_argument("--pft_year", type=int, default=0,
-                   help="Year of the PFT file used to assign dominant PFT "
-                        "(default: smallest year present in the CSV).")
-    p.add_argument("--column", choices=["real", "norm"], default="real",
-                   help="real=lai_pred/lai_obs ; norm=lai_pred_norm/lai_obs_norm "
-                        "(use norm for anomaly-mode runs to judge skill vs "
-                        "climatology).")
-    p.add_argument("--output_dir", default="plot_diagnositcs/pft_diag")
+    p.add_argument(
+        "--predictions", required=True, help="CSV produced by prediction.predict"
+    )
+    p.add_argument("--pft_dir", required=True, help="Folder of PFTmap_{year}.nc")
+    p.add_argument(
+        "--pft_year",
+        type=int,
+        default=0,
+        help="Year of the PFT file used to assign dominant PFT "
+        "(default: smallest year present in the CSV).",
+    )
+    p.add_argument(
+        "--column",
+        choices=["real", "norm"],
+        default="real",
+        help="real=lai_pred/lai_obs ; norm=lai_pred_norm/lai_obs_norm "
+        "(use norm for anomaly-mode runs to judge skill vs "
+        "climatology).",
+    )
+    p.add_argument("--output_dir", default="runs/pft_diag")
     return p.parse_args()
 
 
@@ -284,10 +291,10 @@ def main():
     print(f"PFT year    : {pft_year}")
 
     # ── Pivot to (site, year) × doy ──
-    obs_p = df.pivot_table(index=["site_id", "year"], columns="doy",
-                           values=col_obs)
-    pred_p = df.pivot_table(index=["site_id", "year"], columns="doy",
-                            values=col_pred).reindex(obs_p.index)
+    obs_p = df.pivot_table(index=["site_id", "year"], columns="doy", values=col_obs)
+    pred_p = df.pivot_table(
+        index=["site_id", "year"], columns="doy", values=col_pred
+    ).reindex(obs_p.index)
     doy = obs_p.columns.values.astype(float)
 
     obs = obs_p.values
@@ -296,54 +303,62 @@ def main():
     obs, pred = obs[keep], pred[keep]
     index = obs_p.index[keep]
     site_of_row = index.get_level_values("site_id").to_numpy()
-    print(f"Samples     : {len(obs):,} complete (site, year) curves "
-          f"over {obs.shape[1]} dekads")
+    print(
+        f"Samples     : {len(obs):,} complete (site, year) curves "
+        f"over {obs.shape[1]} dekads"
+    )
     if len(obs) == 0:
         raise RuntimeError("No complete annual curves to analyse.")
 
     # ── Per-row metrics + dominant PFT ──
     metrics = curve_metrics(obs, pred)
-    site_to_pft = assign_dominant_pft(np.unique(site_of_row), Path(args.pft_dir),
-                                      pft_year)
+    site_to_pft = assign_dominant_pft(
+        np.unique(site_of_row), Path(args.pft_dir), pft_year
+    )
     pft_of_row = np.array([site_to_pft[s] for s in site_of_row])
     metrics["pft"] = pft_of_row
 
     # ── Aggregate per dominant PFT ──
     grp = metrics.groupby("pft")
-    summary = pd.DataFrame({
-        "pft": grp.size().index,
-        "n_samples": grp.size().values,
-        "pearson_median": grp["pearson"].median().values,
-        "amp_ratio_median": grp["amp_ratio"].median().values,
-        "amp_obs_median": grp["amp_obs"].median().values,
-        "amp_pred_median": grp["amp_pred"].median().values,
-        "phase_shift_abs_median_dekads": grp["phase_shift_dekads"]
-            .apply(lambda s: np.nanmedian(np.abs(s))).values,
-    })
+    summary = pd.DataFrame(
+        {
+            "pft": grp.size().index,
+            "n_samples": grp.size().values,
+            "pearson_median": grp["pearson"].median().values,
+            "amp_ratio_median": grp["amp_ratio"].median().values,
+            "amp_obs_median": grp["amp_obs"].median().values,
+            "amp_pred_median": grp["amp_pred"].median().values,
+            "phase_shift_abs_median_dekads": grp["phase_shift_dekads"]
+            .apply(lambda s: np.nanmedian(np.abs(s)))
+            .values,
+        }
+    )
     summary["pft_name"] = [PFT_NAMES[int(p)] for p in summary["pft"]]
-    summary["verdict"] = [classify(r, a) for r, a in
-                          zip(summary["pearson_median"],
-                              summary["amp_ratio_median"])]
+    summary["verdict"] = [
+        classify(r, a)
+        for r, a in zip(summary["pearson_median"], summary["amp_ratio_median"])
+    ]
     summary = summary.sort_values("n_samples", ascending=False).reset_index(drop=True)
 
     csv_path = out_dir / "pft_diagnostic_summary.csv"
     summary.to_csv(csv_path, index=False)
-    with pd.option_context("display.width", 140,
-                           "display.max_columns", None):
-        print("\n" + summary.to_string(index=False,
-              float_format=lambda v: f"{v:.3f}"))
+    with pd.option_context("display.width", 140, "display.max_columns", None):
+        print("\n" + summary.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
     print(f"\nSummary CSV -> {csv_path}")
 
     # ── Figures ──
     present = list(summary["pft"].astype(int))
-    plot_mean_curves(obs, pred, pft_of_row, doy, present,
-                     out_dir / "mean_curves_per_pft.png")
+    plot_mean_curves(
+        obs, pred, pft_of_row, doy, present, out_dir / "mean_curves_per_pft.png"
+    )
     plot_summary_bars(summary, out_dir / "skill_amplitude_per_pft.png")
     print(f"Figures     -> {out_dir}/mean_curves_per_pft.png")
     print(f"               {out_dir}/skill_amplitude_per_pft.png")
     print("\nReading the verdict:")
     print("  (a) amortissement  : r OK mais amp_ratio < 1  -> loss spectrale utile")
-    print("  (b) faible skill   : r ~ 0                    -> probleme features/donnees")
+    print(
+        "  (b) faible skill   : r ~ 0                    -> probleme features/donnees"
+    )
 
 
 if __name__ == "__main__":

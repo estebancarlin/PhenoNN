@@ -28,8 +28,8 @@ from phenonn.training import train_full_ram as T
 from phenonn.utils.logger import Logger
 from phenonn.utils.utils import FileUtils
 
-ALL_YEARS = list(range(1992, 2020))         # 28 years
-N_TRAIN = 18                                # → 10 val, like the chrono baseline
+ALL_YEARS = list(range(1992, 2020))  # 28 years
+N_TRAIN = 18  # → 10 val, like the chrono baseline
 
 
 def _rand_split(seed):
@@ -45,13 +45,14 @@ def resolve_split(name, temp_rank_json):
         return _rand_split(1000 + int(name[4:]))
     if name == "coldhot":
         if not os.path.exists(temp_rank_json):
-            raise SystemExit(f"coldhot needs {temp_rank_json!r} — run "
-                             f"rank_years_by_temp.py first.")
+            raise SystemExit(
+                f"coldhot needs {temp_rank_json!r} — run "
+                f"rank_years_by_temp.py first."
+            )
         with open(temp_rank_json) as f:
             order = json.load(f)["years_cold_to_hot"]
         return sorted(order[:N_TRAIN]), sorted(order[N_TRAIN:])
-    raise SystemExit(f"unknown split {name!r} "
-                     f"(chrono | rand1..4 | coldhot)")
+    raise SystemExit(f"unknown split {name!r} " f"(chrono | rand1..4 | coldhot)")
 
 
 def _seed_all(seed):
@@ -80,8 +81,11 @@ def main():
 
     exp_dir = os.path.join(args.output_dir, args.experiment)
     FileUtils.makedir(os.path.join(exp_dir, "logs"))
-    logger = Logger(console_output=True, file_output=True,
-                    log_file=os.path.join(exp_dir, "logs", "train.log"))
+    logger = Logger(
+        console_output=True,
+        file_output=True,
+        log_file=os.path.join(exp_dir, "logs", "train.log"),
+    )
     logger.show_header(f"Year-split [{known.split}] — {args.type}")
     logger.info(f"Train years : {args.train_years}")
     logger.info(f"Val years   : {args.val_years}")

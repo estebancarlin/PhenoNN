@@ -49,7 +49,12 @@ import numpy as np
 import pandas as pd
 import torch
 
-from phenonn.data.lai_dataset import RamLAIDataset, load_co2_lut, load_selected_pixels
+from phenonn.data.lai_dataset import (
+    RamLAIDataset,
+    load_co2_lut,
+    load_parent01_map,
+    load_selected_pixels,
+)
 from phenonn.utils.model_loader import build_model
 
 
@@ -63,23 +68,39 @@ _OBS_DATES = [
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--features_dir", required=True)
-    p.add_argument("--target_dir",   required=True)
-    p.add_argument("--pft_dir",      required=True)
-    p.add_argument("--stats_path",   required=True,
-                   help="norm_stats.json (z-score stats).")
+    p.add_argument("--target_dir", required=True)
+    p.add_argument("--pft_dir", required=True)
+    p.add_argument(
+        "--stats_path", required=True, help="norm_stats.json (z-score stats)."
+    )
     p.add_argument("--co2_path", default="")
-    p.add_argument("--selected_pixels", default="",
-                   help="selected_pixels*.nc — sites to run on.")
-    p.add_argument("--sites", default="",
-                   help="Comma-separated explicit site_ids (overrides "
-                        "--selected_pixels).")
-    p.add_argument("--n_sites", type=int, default=0,
-                   help="If >0, random subsample of this many sites.")
+    p.add_argument(
+        "--selected_pixels", default="", help="selected_pixels*.nc — sites to run on."
+    )
+    p.add_argument(
+        "--sites",
+        default="",
+        help="Comma-separated explicit site_ids (overrides " "--selected_pixels).",
+    )
+    p.add_argument(
+        "--parent_map",
+        default="",
+        help="selected_pixels_01.nc: maps 0.05° site_ids to their 0.1° ERA5 "
+        "parent cells (required with dual-resolution pixelsets, as in "
+        "scripts/smoke_train.sh).",
+    )
+    p.add_argument(
+        "--n_sites",
+        type=int,
+        default=0,
+        help="If >0, random subsample of this many sites.",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--train_years", default="1992-2009")
-    p.add_argument("--val_years",   default="2010-2018")
+    p.add_argument("--val_years", default="2010-2018")
     # small per-site model
     p.add_argument("--type", default="lstm")
     p.add_argument("--hidden_size", type=int, default=32)
@@ -90,7 +111,7 @@ def parse_args():
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--huber_delta", type=float, default=1.0)
     p.add_argument("--normalize_lai", type=int, default=1)
-    p.add_argument("--output_csv", default="per_pixel_baseline.csv")
+    p.add_argument("--output_csv", default="runs/per_pixel_baseline.csv")
     return p.parse_args()
 
 
@@ -104,14 +125,24 @@ def parse_year_spec(spec: str):
 def _model_args(args) -> SimpleNamespace:
     """Namespace with every field build_model may read, so any --type works."""
     return SimpleNamespace(
-        type=args.type, seq_length=args.seq_length,
-        hidden_size=args.hidden_size, num_layers=args.num_layers,
+        type=args.type,
+        seq_length=args.seq_length,
+        hidden_size=args.hidden_size,
+        num_layers=args.num_layers,
         dropout2=args.dropout,
         # defaults for the other architectures (unused by lstm/fcn/linear*)
-        embed_size=64, nhead=4, forward_expansion=4, d_model=None,
-        dropout1=0.05, dropout_att=0.0,
-        feed_forward_trans1=4, feed_forward_trans2=4,
-        n_attn_blocks=2, stress_dim=8, num_layers1=2, d_layers=2,
+        embed_size=64,
+        nhead=4,
+        forward_expansion=4,
+        d_model=None,
+        dropout1=0.05,
+        dropout_att=0.0,
+        feed_forward_trans1=4,
+        feed_forward_trans2=4,
+        n_attn_blocks=2,
+        stress_dim=8,
+        num_layers1=2,
+        d_layers=2,
     )
 
 
@@ -125,7 +156,7 @@ def train_site(model, feats, tgts, device, epochs, lr, delta):
     tgts0 = torch.nan_to_num(tgts, nan=0.0)
     for _ in range(epochs):
         opt.zero_grad()
-        pred = model(feats)                          # (n, 1, 36)
+        pred = model(feats)  # (n, 1, 36)
         loss = lossf(pred[mask], tgts0[mask])
         loss.backward()
         opt.step()
@@ -143,8 +174,8 @@ def main():
     lai_normalized = bool(args.normalize_lai)
 
     train_years = parse_year_spec(args.train_years)
-    val_years   = parse_year_spec(args.val_years)
-    all_years   = sorted(set(train_years) | set(val_years))
+    val_years = parse_year_spec(args.val_years)
+    all_years = sorted(set(train_years) | set(val_years))
 
     # ── Resolve sites ──
     if args.sites:
@@ -159,68 +190,94 @@ def main():
     print(f"Sites        : {len(site_ids):,}")
     print(f"Train years  : {train_years}")
     print(f"Val years    : {val_years}")
-    print(f"Model/pixel  : {args.type} (hidden={args.hidden_size}, "
-          f"layers={args.num_layers})")
+    print(
+        f"Model/pixel  : {args.type} (hidden={args.hidden_size}, "
+        f"layers={args.num_layers})"
+    )
 
     # ── One RAM load for everything ──
     print("Building dataset (one load for all sites × years) …")
+    parent_map = load_parent01_map(args.parent_map) if args.parent_map else None
+    if parent_map is not None:
+        print(f"Parent map    : {args.parent_map} ({len(parent_map):,} links)")
     ds = RamLAIDataset(
-        features_dir=args.features_dir, target_dir=args.target_dir,
-        pft_dir=args.pft_dir, years=all_years, site_ids=site_ids,
-        seq_length=args.seq_length, norm_stats=norm_stats,
-        co2_lut=co2_lut, normalize_lai=lai_normalized, verbose=True,
+        features_dir=args.features_dir,
+        target_dir=args.target_dir,
+        pft_dir=args.pft_dir,
+        years=all_years,
+        site_ids=site_ids,
+        seq_length=args.seq_length,
+        norm_stats=norm_stats,
+        co2_lut=co2_lut,
+        normalize_lai=lai_normalized,
+        parent_map=parent_map,
+        verbose=True,
     )
     if len(ds) == 0:
         raise RuntimeError("No samples produced.")
 
     denorm = lai_normalized and "LAI" in norm_stats
     lai_mean = float(norm_stats["LAI"]["mean"]) if denorm else 0.0
-    lai_std  = float(norm_stats["LAI"]["std"])  if denorm else 1.0
+    lai_std = float(norm_stats["LAI"]["std"]) if denorm else 1.0
     margs = _model_args(args)
 
     # ── Per-site train + eval ──
     rows = []
     n_done = n_skipped = 0
     for si, site in enumerate(site_ids):
-        train_idx = [ds.sample_index[(site, y)] for y in train_years
-                     if (site, y) in ds.sample_index]
-        val_pairs = [(y, ds.sample_index[(site, y)]) for y in val_years
-                     if (site, y) in ds.sample_index]
+        train_idx = [
+            ds.sample_index[(site, y)]
+            for y in train_years
+            if (site, y) in ds.sample_index
+        ]
+        val_pairs = [
+            (y, ds.sample_index[(site, y)])
+            for y in val_years
+            if (site, y) in ds.sample_index
+        ]
         if not train_idx or not val_pairs:
             n_skipped += 1
             continue
 
-        feats = torch.stack([ds[i][0] for i in train_idx]).to(device)   # (nt,C,L)
-        tgts  = torch.stack([ds[i][1] for i in train_idx]).to(device)   # (nt,1,36)
-        if not torch.isfinite(tgts).any():          # no observed LAI to fit on
+        feats = torch.stack([ds[i][0] for i in train_idx]).to(device)  # (nt,C,L)
+        tgts = torch.stack([ds[i][1] for i in train_idx]).to(device)  # (nt,1,36)
+        if not torch.isfinite(tgts).any():  # no observed LAI to fit on
             n_skipped += 1
             continue
 
         model = build_model(margs)
-        train_site(model, feats, tgts, device,
-                   args.num_epochs, args.lr, args.huber_delta)
+        train_site(
+            model, feats, tgts, device, args.num_epochs, args.lr, args.huber_delta
+        )
 
         vfeats = torch.stack([ds[i][0] for _, i in val_pairs]).to(device)
         model.eval()
         with torch.no_grad():
-            vpred = model(vfeats).cpu().numpy()[:, 0, :]                # (nv, 36)
+            vpred = model(vfeats).cpu().numpy()[:, 0, :]  # (nv, 36)
         for (year, idx), pred_v in zip(val_pairs, vpred):
-            obs_v = ds[idx][1].numpy()[0, :]                           # (36,)
+            obs_v = ds[idx][1].numpy()[0, :]  # (36,)
             pred_real = pred_v * lai_std + lai_mean
-            obs_real  = obs_v * lai_std + lai_mean
+            obs_real = obs_v * lai_std + lai_mean
             for k, (month, day, doy) in enumerate(_OBS_DATES):
-                rows.append({
-                    "site_id": site, "year": int(year),
-                    "month": month, "day": day, "doy": doy,
-                    "lai_pred": float(pred_real[k]),
-                    "lai_obs":  float(obs_real[k]),
-                })
+                rows.append(
+                    {
+                        "site_id": site,
+                        "year": int(year),
+                        "month": month,
+                        "day": day,
+                        "doy": doy,
+                        "lai_pred": float(pred_real[k]),
+                        "lai_obs": float(obs_real[k]),
+                    }
+                )
         n_done += 1
         if (si + 1) % 25 == 0 or si == len(site_ids) - 1:
             print(f"  trained {n_done:,} sites  ({si + 1}/{len(site_ids)})")
 
-    print(f"\nTrained {n_done:,} models | skipped {n_skipped:,} "
-          f"(no train or no val sample).")
+    print(
+        f"\nTrained {n_done:,} models | skipped {n_skipped:,} "
+        f"(no train or no val sample)."
+    )
     if not rows:
         raise RuntimeError("No predictions produced.")
 
@@ -229,14 +286,14 @@ def main():
     valid = df.dropna(subset=["lai_obs"]).copy()
 
     # ── Metrics (same definitions as prediction/predict.py) ──
-    obs  = valid["lai_obs"].values.astype(float)
+    obs = valid["lai_obs"].values.astype(float)
     pred = valid["lai_pred"].values.astype(float)
-    err  = pred - obs
-    rmse = float(np.sqrt(np.mean(err ** 2)))
-    oc = valid["lai_obs"]  - valid.groupby("site_id")["lai_obs"].transform("mean")
+    err = pred - obs
+    rmse = float(np.sqrt(np.mean(err**2)))
+    oc = valid["lai_obs"] - valid.groupby("site_id")["lai_obs"].transform("mean")
     pc = valid["lai_pred"] - valid.groupby("site_id")["lai_pred"].transform("mean")
     ss_res_c = float(np.sum((oc - pc) ** 2))
-    ss_tot_c = float(np.sum(oc ** 2))
+    ss_tot_c = float(np.sum(oc**2))
     r2_centered = 1.0 - ss_res_c / ss_tot_c if ss_tot_c > 0 else float("nan")
     if obs.std() > 1e-9 and pred.std() > 1e-9:
         r2_pearson = float(np.corrcoef(obs, pred)[0, 1]) ** 2
@@ -250,19 +307,24 @@ def main():
         if len(o) >= 5 and sstot > 0:
             site_r2s.append(1.0 - float(np.sum((p - o) ** 2)) / sstot)
 
-    lines = ["── Per-pixel baseline (pooled over sites) ──",
-             f"  Overall RMSE               : {rmse:.4f}",
-             f"  Centered  R² (NSE on dyn.) : {r2_centered:+.4f}",
-             f"  Pearson²  R² (correlation) : {r2_pearson:+.4f}",
-             f"  Valid points               : {len(valid):,} / {len(df):,}"]
+    lines = [
+        "── Per-pixel baseline (pooled over sites) ──",
+        f"  Overall RMSE               : {rmse:.4f}",
+        f"  Centered  R² (NSE on dyn.) : {r2_centered:+.4f}",
+        f"  Pearson²  R² (correlation) : {r2_pearson:+.4f}",
+        f"  Valid points               : {len(valid):,} / {len(df):,}",
+    ]
     if site_r2s:
         arr = np.array(site_r2s)
-        lines += ["", f"── Per-site R² (NSE) over {len(arr)} sites ──",
-                  f"  Median          : {np.median(arr):+.4f}",
-                  f"  Mean            : {np.mean(arr):+.4f}",
-                  f"  5th percentile  : {np.percentile(arr, 5):+.4f}",
-                  f"  95th percentile : {np.percentile(arr, 95):+.4f}",
-                  f"  Sites with R²>0 : {int(np.sum(arr > 0)):,} / {len(arr):,}"]
+        lines += [
+            "",
+            f"── Per-site R² (NSE) over {len(arr)} sites ──",
+            f"  Median          : {np.median(arr):+.4f}",
+            f"  Mean            : {np.mean(arr):+.4f}",
+            f"  5th percentile  : {np.percentile(arr, 5):+.4f}",
+            f"  95th percentile : {np.percentile(arr, 95):+.4f}",
+            f"  Sites with R²>0 : {int(np.sum(arr > 0)):,} / {len(arr):,}",
+        ]
     print("\n" + "\n".join(lines))
 
     os.makedirs(os.path.dirname(args.output_csv) or ".", exist_ok=True)

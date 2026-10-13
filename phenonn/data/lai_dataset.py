@@ -1,3 +1,10 @@
+# Copyright 2026 IPSL / CNRS / Sorbonne University
+# Authors: Stefan Barbu, Kazem Ardaneh
+#
+# This work is licensed under the Creative Commons
+# Attribution-NonCommercial-ShareAlike 4.0 International License.
+# To view a copy of this license, visit
+# http://creativecommons.org/licenses/by-nc-sa/4.0/
 """
 PyTorch Dataset for LAI prediction on NetCDF cubes.
 
@@ -42,7 +49,6 @@ When `anomaly_clim` is provided, the target is replaced by
 behaviour to the dataset_big.py implementation it replaces.
 """
 
-import datetime
 import os
 import time
 from typing import Dict, List, Optional, Tuple
@@ -54,10 +60,19 @@ import xarray as xr
 from torch.utils.data import Dataset
 
 from phenonn.utils.config import (
-    ALL_FEATURES, CO2_FEATURES, CYCLIC_FEATURES,
-    DYNAMIC_FEATURES, FEATURES_FNAME, LOG_TRANSFORM_FEATURES,
-    METEO_BASE, N_DEKAD_YEAR, N_PFT, PFT_COLS, PFT_FNAME,
-    SEQ_LENGTH_DEFAULT, TARGETS_FNAME, VALID_FNAME,
+    ALL_FEATURES,
+    CO2_FEATURES,
+    CYCLIC_FEATURES,
+    DYNAMIC_FEATURES,
+    FEATURES_FNAME,
+    LOG_TRANSFORM_FEATURES,
+    N_DEKAD_YEAR,
+    N_PFT,
+    PFT_COLS,
+    PFT_FNAME,
+    SEQ_LENGTH_DEFAULT,
+    TARGETS_FNAME,
+    VALID_FNAME,
     add_co2_features,
 )
 from phenonn.utils.wrappers import _OBS_POSITIONS
@@ -76,10 +91,12 @@ def _clim36_to_365(clim36: np.ndarray) -> np.ndarray:
     finite = np.isfinite(clim36)
     out = np.full(N_DAYS_YEAR, np.nan, dtype=np.float32)
     if int(finite.sum()) >= 2:
-        doy = (_OBS_POSITIONS_ARR + 1).astype(np.float64)      # 1-based dekad DOYs
-        out[:] = np.interp(np.arange(1, N_DAYS_YEAR + 1),
-                           doy[finite], clim36[finite].astype(np.float64)
-                           ).astype(np.float32)
+        doy = (_OBS_POSITIONS_ARR + 1).astype(np.float64)  # 1-based dekad DOYs
+        out[:] = np.interp(
+            np.arange(1, N_DAYS_YEAR + 1),
+            doy[finite],
+            clim36[finite].astype(np.float64),
+        ).astype(np.float32)
     return out
 
 
@@ -106,9 +123,7 @@ def generate_site_ids_from_range(
     """Every pix id in the (row_min..row_max, col_min..col_max) inclusive box."""
     r0, r1 = row_range
     c0, c1 = col_range
-    return [encode_site_id(r, c)
-            for r in range(r0, r1 + 1)
-            for c in range(c0, c1 + 1)]
+    return [encode_site_id(r, c) for r in range(r0, r1 + 1) for c in range(c0, c1 + 1)]
 
 
 # ── CO2 LUT (Annee_YYYY=VALUE format) ───────────────────────────────────────
@@ -154,8 +169,7 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
          for `pft_fraction`, `PFT`, `pft`, `pft_frac`, `fraction`.
     """
     rename = {}
-    for src, dst in [("lat", "latitude"), ("lon", "longitude"),
-                     ("veget", "pft")]:
+    for src, dst in [("lat", "latitude"), ("lon", "longitude"), ("veget", "pft")]:
         if src in ds.coords or src in ds.dims:
             rename[src] = dst
     if rename:
@@ -170,8 +184,7 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
     pft_named = [f"pft{k}_frac" for k in range(1, N_PFT + 1)]
     if all(v in ds.data_vars for v in pft_named):
         return xr.concat(
-            [ds[v].expand_dims(pft=[k - 1])
-             for k, v in enumerate(pft_named, start=1)],
+            [ds[v].expand_dims(pft=[k - 1]) for k, v in enumerate(pft_named, start=1)],
             dim="pft",
         )
 
@@ -222,7 +235,7 @@ def _read_site_vectors(
         # (minutes). These variables are small in total (LAI ~240 MB, PFT ~100 MB),
         # so read the WHOLE variable ONCE sequentially, then gather rows in memory
         # — matches build_pixelset_targets' own read-once approach, no thrashing.
-        full = da.transpose("site", value_dim).values      # one sequential read
+        full = da.transpose("site", value_dim).values  # one sequential read
         out[ok] = full[rows[ok]].astype(np.float32)
     return out
 
@@ -261,7 +274,7 @@ def compute_climatology_lookup(
 
     # Accumulator: sum and count per (site, dekad)
     sum_ = np.zeros((len(wanted), N_DEKAD_YEAR), dtype=np.float64)
-    cnt  = np.zeros((len(wanted), N_DEKAD_YEAR), dtype=np.int32)
+    cnt = np.zeros((len(wanted), N_DEKAD_YEAR), dtype=np.int32)
 
     for y in sorted(set(clim_years)):
         path = os.path.join(target_dir, TARGETS_FNAME.format(year=y))
@@ -273,7 +286,7 @@ def compute_climatology_lookup(
             vals = _read_site_vectors(ds["LAI"], wanted, "dekad")  # (n_site, 36)
         finite = np.isfinite(vals)
         sum_ += np.where(finite, vals, 0.0)
-        cnt  += finite.astype(np.int32)
+        cnt += finite.astype(np.int32)
 
     mean = np.where(cnt > 0, sum_ / np.maximum(cnt, 1), np.nan).astype(np.float32)
     return {sid: mean[i] for i, sid in enumerate(wanted)}
@@ -283,7 +296,8 @@ def compute_climatology_lookup(
 
 
 def load_valid_mask(
-    valid_dir: str, year: int,
+    valid_dir: str,
+    year: int,
 ) -> Optional[xr.DataArray]:
     """Return the bool (lat, lon) mask for `year`, or None if missing."""
     path = os.path.join(valid_dir, VALID_FNAME.format(year=year))
@@ -321,14 +335,15 @@ def load_parent01_map(selected_pixels_01: str) -> Dict[str, str]:
     the mapping is exactly the one baked by make_selected_pixels_01.
     """
     with xr.open_dataset(selected_pixels_01) as ds:
-        site_id05   = np.asarray(ds["site_id05"].values).astype(str)
+        site_id05 = np.asarray(ds["site_id05"].values).astype(str)
         parent_site = np.asarray(ds["parent_site"].values).astype(np.int64)
-        site_id01   = np.asarray(ds["site_id"].values).astype(str)   # 0.1° cells
+        site_id01 = np.asarray(ds["site_id"].values).astype(str)  # 0.1° cells
     return {s05: site_id01[p] for s05, p in zip(site_id05, parent_site)}
 
 
 def list_valid_sites(
-    valid_dir: str, years: List[int],
+    valid_dir: str,
+    years: List[int],
     bbox_rows: Optional[Tuple[int, int]] = None,
     bbox_cols: Optional[Tuple[int, int]] = None,
 ) -> Dict[int, List[str]]:
@@ -348,7 +363,7 @@ def list_valid_sites(
             r0, r1 = bbox_rows if bbox_rows else (0, m.shape[0] - 1)
             c0, c1 = bbox_cols if bbox_cols else (0, m.shape[1] - 1)
             keep = np.zeros_like(m)
-            keep[r0:r1 + 1, c0:c1 + 1] = True
+            keep[r0 : r1 + 1, c0 : c1 + 1] = True
             m = m & keep
         lats, lons = np.where(m)
         out[y] = [encode_site_id(int(la), int(lo)) for la, lo in zip(lats, lons)]
@@ -406,16 +421,16 @@ class LAIDataset(Dataset):
     ) -> None:
         super().__init__()
         self.features_dir = features_dir
-        self.target_dir   = target_dir
-        self.pft_dir      = pft_dir
-        self.seq_length   = seq_length
-        self.norm_stats   = norm_stats
+        self.target_dir = target_dir
+        self.pft_dir = pft_dir
+        self.seq_length = seq_length
+        self.norm_stats = norm_stats
         self.anomaly_clim = anomaly_clim
-        self.co2_lut      = co2_lut
+        self.co2_lut = co2_lut
         self.normalize_lai = normalize_lai
 
-        target_years   = sorted(set(int(y) for y in years))
-        feature_years  = sorted(set(target_years) | {y - 1 for y in target_years})
+        target_years = sorted(set(int(y) for y in years))
+        feature_years = sorted(set(target_years) | {y - 1 for y in target_years})
 
         # ── Open everything lazily ──
         # Features are now keyed by a `site` dim (flat ERA5_daily_pixelset_*.nc).
@@ -436,7 +451,7 @@ class LAIDataset(Dataset):
         # Read from the pixelset files (output of build_pixelset_targets) by
         # site_id, like the ERA5 features. Per-site LAI (36) / PFT (15) is tiny.
         targ_lut: Dict[int, Dict[str, np.ndarray]] = {}
-        pft_lut:  Dict[int, Dict[str, np.ndarray]] = {}
+        pft_lut: Dict[int, Dict[str, np.ndarray]] = {}
         for y in target_years:
             tpath = os.path.join(target_dir, TARGETS_FNAME.format(year=y))
             if os.path.exists(tpath):
@@ -453,9 +468,9 @@ class LAIDataset(Dataset):
         # ── Materialise samples ──
         self.samples: List[Dict] = []
         n_drop_missing_year = 0
-        n_drop_nan_feat     = 0
-        n_drop_no_pft       = 0
-        n_drop_short_hist   = 0
+        n_drop_nan_feat = 0
+        n_drop_no_pft = 0
+        n_drop_short_hist = 0
         n_drop_unknown_site = 0
 
         for year in target_years:
@@ -469,18 +484,23 @@ class LAIDataset(Dataset):
                 n_drop_no_pft += len(site_ids)
                 continue
 
-            idx_map_y    = site_index_maps[year]
-            idx_map_ym1  = site_index_maps[year - 1]
+            idx_map_y = site_index_maps[year]
+            idx_map_ym1 = site_index_maps[year - 1]
             targ_y, pft_y = targ_lut[year], pft_lut[year]
             for site_id in site_ids:
-                site_idx_y   = idx_map_y.get(site_id)
+                site_idx_y = idx_map_y.get(site_id)
                 site_idx_ym1 = idx_map_ym1.get(site_id)
                 if site_idx_y is None or site_idx_ym1 is None:
                     n_drop_unknown_site += 1
                     continue
                 sample = self._build_sample(
-                    site_id, year, site_idx_y, site_idx_ym1,
-                    ds_features, targ_y.get(site_id), pft_y.get(site_id),
+                    site_id,
+                    year,
+                    site_idx_y,
+                    site_idx_ym1,
+                    ds_features,
+                    targ_y.get(site_id),
+                    pft_y.get(site_id),
                 )
                 if sample is None:
                     n_drop_nan_feat += 1
@@ -516,13 +536,17 @@ class LAIDataset(Dataset):
         sin = np.sin(2 * np.pi * doy / 365.25)
         cos = np.cos(2 * np.pi * doy / 365.25)
         full = np.tile(np.stack([sin, cos], axis=0), reps=(1, 3))  # 3 years buffer
-        return full[:, -self.seq_length:].astype(np.float32)
+        return full[:, -self.seq_length :].astype(np.float32)
 
     def _build_sample(
-        self, site_id: str, year: int,
-        site_idx_y: int, site_idx_ym1: int,
+        self,
+        site_id: str,
+        year: int,
+        site_idx_y: int,
+        site_idx_ym1: int,
         ds_features: Dict[int, xr.Dataset],
-        target: Optional[np.ndarray], pft_vec: Optional[np.ndarray],
+        target: Optional[np.ndarray],
+        pft_vec: Optional[np.ndarray],
     ) -> Optional[Dict]:
         """
         Return a fully-materialised sample dict for (site, year), or None if
@@ -538,19 +562,19 @@ class LAIDataset(Dataset):
         # The features file's main dim is `site`, indexed by site_idx.
         try:
             ds_ym1 = ds_features[year - 1]
-            ds_y   = ds_features[year]
+            ds_y = ds_features[year]
             feat_ym1 = ds_ym1[DYNAMIC_FEATURES].isel(site=site_idx_ym1)
-            feat_y   = ds_y  [DYNAMIC_FEATURES].isel(site=site_idx_y)
+            feat_y = ds_y[DYNAMIC_FEATURES].isel(site=site_idx_y)
         except Exception:
             return None
 
         # Stack to a single (time, n_dyn) numpy array via load + to_array
         feat_ym1_np = feat_ym1.to_array().transpose("time", "variable").values
-        feat_y_np   = feat_y.to_array().transpose("time", "variable").values
-        feat_full   = np.concatenate([feat_ym1_np, feat_y_np], axis=0)
+        feat_y_np = feat_y.to_array().transpose("time", "variable").values
+        feat_full = np.concatenate([feat_ym1_np, feat_y_np], axis=0)
         if feat_full.shape[0] < self.seq_length:
             return None
-        feat_full = feat_full[-self.seq_length:].astype(np.float32)
+        feat_full = feat_full[-self.seq_length :].astype(np.float32)
         if not np.all(np.isfinite(feat_full)):
             return None
 
@@ -564,7 +588,7 @@ class LAIDataset(Dataset):
             clim_vec = self.anomaly_clim.get(site_id)
             if clim_vec is None:
                 return None
-            target = (target - clim_vec.astype(np.float32))
+            target = target - clim_vec.astype(np.float32)
 
         # ── Build the full feature matrix in canonical order ──
         feat_mat = self._assemble_feature_matrix(feat_full, pft_vec, year)
@@ -572,23 +596,28 @@ class LAIDataset(Dataset):
             return None
 
         # ── LAI normalisation (independent of feature norm) ──
-        if (self.normalize_lai
-                and self.anomaly_clim is None
-                and self.norm_stats is not None
-                and "LAI" in self.norm_stats):
+        if (
+            self.normalize_lai
+            and self.anomaly_clim is None
+            and self.norm_stats is not None
+            and "LAI" in self.norm_stats
+        ):
             mu = float(self.norm_stats["LAI"]["mean"])
             sd = float(self.norm_stats["LAI"]["std"])
             target = (target - mu) / max(sd, 1e-8)
 
         return {
             "site_id": site_id,
-            "year":    int(year),
-            "features": feat_mat,                  # (n_feat, seq_length) float32
-            "target":   target.reshape(1, -1),     # (1, 36) float32
+            "year": int(year),
+            "features": feat_mat,  # (n_feat, seq_length) float32
+            "target": target.reshape(1, -1),  # (1, 36) float32
         }
 
     def _assemble_feature_matrix(
-        self, dyn_window: np.ndarray, pft_vec: np.ndarray, year: int,
+        self,
+        dyn_window: np.ndarray,
+        pft_vec: np.ndarray,
+        year: int,
     ) -> Optional[np.ndarray]:
         """
         Concatenate DYNAMIC + CYCLIC + CO2 + PFT channels in canonical order.
@@ -596,7 +625,7 @@ class LAIDataset(Dataset):
         `norm_stats` is provided. Returns (n_features, seq_length) float32.
         """
         n_t = dyn_window.shape[0]
-        dyn = dyn_window.T.astype(np.float32)              # (n_dyn, seq_length)
+        dyn = dyn_window.T.astype(np.float32)  # (n_dyn, seq_length)
 
         # log1p on heavy-tailed BEFORE z-score
         if self.norm_stats is not None:
@@ -633,7 +662,11 @@ class LAIDataset(Dataset):
             parts.append(co2)
 
         # PFT (constant per year, broadcast over time)
-        pft = np.broadcast_to(pft_vec.reshape(-1, 1), (N_PFT, n_t)).astype(np.float32).copy()
+        pft = (
+            np.broadcast_to(pft_vec.reshape(-1, 1), (N_PFT, n_t))
+            .astype(np.float32)
+            .copy()
+        )
         if self.norm_stats is not None:
             for i, name in enumerate(PFT_COLS):
                 if name not in self.norm_stats:
@@ -653,7 +686,7 @@ class LAIDataset(Dataset):
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         s = self.samples[idx]
         feat = torch.from_numpy(s["features"])
-        tgt  = torch.from_numpy(s["target"])
+        tgt = torch.from_numpy(s["target"])
         return feat, tgt
 
     def get_site_info(self, idx: int) -> Dict:
@@ -713,21 +746,21 @@ class RamLAIDataset(LAIDataset):
         # and each requested 0.05° site reads the row of its containing 0.1° cell.
         # Targets/PFT stay keyed by the 0.05° site_id, so every downstream map
         # (self._row, self.sample_index, LAI/PFT LUTs) keeps the 0.05° id.
-        self.parent_map    = parent_map
-        self.seq_length    = seq_length
-        self.norm_stats    = norm_stats
-        self.anomaly_clim  = anomaly_clim
-        self.co2_lut       = co2_lut
+        self.parent_map = parent_map
+        self.seq_length = seq_length
+        self.norm_stats = norm_stats
+        self.anomaly_clim = anomaly_clim
+        self.co2_lut = co2_lut
         self.normalize_lai = normalize_lai
         self._cyclic_window = self._build_cyclic_window()
 
-        target_years  = sorted(set(int(y) for y in years))
+        target_years = sorted(set(int(y) for y in years))
         feature_years = sorted(set(target_years) | {y - 1 for y in target_years})
         # unique, order-preserving
         site_list = list(dict.fromkeys(site_ids))
 
         # ── Raw daily features → RAM (parallel read, one file per feature year) ──
-        self._dyn: Dict[int, np.ndarray] = {}      # year → (n_loaded, T, n_dyn)
+        self._dyn: Dict[int, np.ndarray] = {}  # year → (n_loaded, T, n_dyn)
         self._row: Dict[int, Dict[str, int]] = {}  # year → {site_id: row}
 
         def _read_year(y):
@@ -749,22 +782,21 @@ class RamLAIDataset(LAIDataset):
                     return None
                 # Vectorised id→row lookup (pandas, C hash) over the file's coord.
                 file_ids = pd.Index(np.asarray(ds["site_id"].values).astype(str))
-                feat_rows = file_ids.get_indexer(pd.Index(feat))     # -1 if absent
+                feat_rows = file_ids.get_indexer(pd.Index(feat))  # -1 if absent
                 keep = feat_rows >= 0
                 if not keep.any():
                     return None
                 keys = [k for k, ok in zip(keys, keep) if ok]
-                sel = feat_rows[keep].astype(np.int64)               # parent rows (may repeat)
+                sel = feat_rows[keep].astype(np.int64)  # parent rows (may repeat)
                 n_t = ds.sizes["time"]
-                arr = np.empty((sel.size, n_t, len(DYNAMIC_FEATURES)),
-                               dtype=np.float32)
+                arr = np.empty((sel.size, n_t, len(DYNAMIC_FEATURES)), dtype=np.float32)
                 # Read each DISTINCT parent cell ONCE, in SORTED (chunk-aligned)
                 # order, then broadcast back to the (possibly repeated) requested
                 # sites. Turns millions of scattered NFS/HDF5 reads into a few
                 # sequential chunk reads — bit-identical to a per-site isel.
-                uniq, inv = np.unique(sel, return_inverse=True)      # uniq sorted
+                uniq, inv = np.unique(sel, return_inverse=True)  # uniq sorted
                 for i, name in enumerate(DYNAMIC_FEATURES):
-                    block = ds[name].isel(site=uniq).values          # (n_t, n_uniq)
+                    block = ds[name].isel(site=uniq).values  # (n_t, n_uniq)
                     arr[:, :, i] = block.T[inv]
             return y, arr, {s: k for k, s in enumerate(keys)}
 
@@ -780,6 +812,7 @@ class RamLAIDataset(LAIDataset):
         # netCDF4/h5py share a single thread-safe libhdf5.
         if threaded_read:
             from concurrent.futures import ThreadPoolExecutor
+
             n_workers = min(len(feature_years), 6) or 1
             with ThreadPoolExecutor(max_workers=n_workers) as _ex:
                 results = list(_ex.map(_read_year, feature_years))
@@ -790,20 +823,25 @@ class RamLAIDataset(LAIDataset):
         for _done, _res in enumerate(results, 1):
             if _res is None:
                 if verbose:
-                    print(f"  [load] features {_done}/{_nfy}  (year missing)  "
-                          f"{time.time() - _t0:.0f}s", flush=True)
+                    print(
+                        f"  [load] features {_done}/{_nfy}  (year missing)  "
+                        f"{time.time() - _t0:.0f}s",
+                        flush=True,
+                    )
                 continue
             y_res, arr, row_map = _res
             self._dyn[y_res] = arr
             self._row[y_res] = row_map
             if verbose:
-                print(f"  [load] features {_done}/{_nfy}  year {y_res}  "
-                      f"({arr.shape[0]:,} sites)  {time.time() - _t0:.0f}s",
-                      flush=True)
+                print(
+                    f"  [load] features {_done}/{_nfy}  year {y_res}  "
+                    f"({arr.shape[0]:,} sites)  {time.time() - _t0:.0f}s",
+                    flush=True,
+                )
 
         # ── Targets (LAI) and PFT → RAM (read by site_id from pixelset files) ──
         self._targ: Dict[int, Dict[str, np.ndarray]] = {}
-        self._pft:  Dict[int, Dict[str, np.ndarray]] = {}
+        self._pft: Dict[int, Dict[str, np.ndarray]] = {}
         _t0 = time.time()
         _lai_rows = None
         _pft_rows = None
@@ -811,21 +849,25 @@ class RamLAIDataset(LAIDataset):
             tpath = os.path.join(target_dir, TARGETS_FNAME.format(year=y))
             if os.path.exists(tpath):
                 with xr.open_dataset(tpath) as dt:
-                    if _lai_rows is None:                    # built once, reused
+                    if _lai_rows is None:  # built once, reused
                         _lai_rows = _site_row_index(dt["LAI"], site_list)
-                    vals = _read_site_vectors(dt["LAI"], site_list, "dekad",
-                                              rows=_lai_rows)
+                    vals = _read_site_vectors(
+                        dt["LAI"], site_list, "dekad", rows=_lai_rows
+                    )
                 self._targ[y] = {s: vals[i] for i, s in enumerate(site_list)}
             ppath = os.path.join(pft_dir, PFT_FNAME.format(year=y))
             if os.path.exists(ppath):
                 pa = _open_pft_array(ppath)
-                if _pft_rows is None:                        # built once, reused
+                if _pft_rows is None:  # built once, reused
                     _pft_rows = _site_row_index(pa, site_list)
                 pv = _read_site_vectors(pa, site_list, "pft", rows=_pft_rows)
                 self._pft[y] = {s: pv[i] for i, s in enumerate(site_list)}
             if verbose:
-                print(f"  [load] targets/pft {_j}/{len(target_years)}  year {y}  "
-                      f"{time.time() - _t0:.0f}s", flush=True)
+                print(
+                    f"  [load] targets/pft {_j}/{len(target_years)}  year {y}  "
+                    f"{time.time() - _t0:.0f}s",
+                    flush=True,
+                )
 
         # ── Daily LAI target (only when this instance trains on the 365-day
         #    interpolated curve). "obs"/"off" reuse the dekadal self._targ above.
@@ -835,16 +877,15 @@ class RamLAIDataset(LAIDataset):
                 raise ValueError("daily_mode='interp' requires daily_target_dir")
             _daily_rows = None
             for y in target_years:
-                dpath = os.path.join(daily_target_dir,
-                                     LAI_DAILY_FNAME.format(year=y))
+                dpath = os.path.join(daily_target_dir, LAI_DAILY_FNAME.format(year=y))
                 if os.path.exists(dpath):
                     with xr.open_dataset(dpath) as dd:
-                        if _daily_rows is None:              # built once, reused
+                        if _daily_rows is None:  # built once, reused
                             _daily_rows = _site_row_index(dd["LAI"], site_list)
-                        vals = _read_site_vectors(dd["LAI"], site_list, "day",
-                                                  rows=_daily_rows)
-                    self._targ_daily[y] = {s: vals[i]
-                                           for i, s in enumerate(site_list)}
+                        vals = _read_site_vectors(
+                            dd["LAI"], site_list, "day", rows=_daily_rows
+                        )
+                    self._targ_daily[y] = {s: vals[i] for i, s in enumerate(site_list)}
 
         # ── Daily climatology (anomaly + daily): interpolate each site's dekadal
         #    climatology to 365 days so the daily/obs targets can be turned into
@@ -857,7 +898,8 @@ class RamLAIDataset(LAIDataset):
                 c36 = anomaly_clim.get(s)
                 if c36 is not None:
                     self._anom_clim_daily[s] = _clim36_to_365(
-                        np.asarray(c36, dtype=np.float32))
+                        np.asarray(c36, dtype=np.float32)
+                    )
 
         # ── Pre-normalise ONCE (perf): apply log1p + z-score to the raw dynamic
         #    features and the PFT vectors in RAM a single time, and pre-build the
@@ -866,8 +908,7 @@ class RamLAIDataset(LAIDataset):
         #    loop of _assemble_feature_matrix no longer runs per sample/epoch.
         #    Bit-identical to that loop (same μ/σ, same log1p/clip, float32).
         self._prenorm = norm_stats is not None
-        self._co2_on  = bool(add_co2_features and CO2_FEATURES
-                             and co2_lut is not None)
+        self._co2_on = bool(add_co2_features and CO2_FEATURES and co2_lut is not None)
         self._cyclic_norm: Optional[np.ndarray] = None
         self._co2_val: Dict[int, float] = {}
         if self._prenorm:
@@ -884,12 +925,20 @@ class RamLAIDataset(LAIDataset):
             # channels; float64 intermediate + float32 store → bit-identical to
             # the per-channel `(vec[i]-mu)/max(sd,1e-8)` loop above.
             pft_mask = np.array([n in norm_stats for n in PFT_COLS], dtype=bool)
-            pft_mu   = np.array(
-                [float(norm_stats[n]["mean"]) if n in norm_stats else 0.0
-                 for n in PFT_COLS], dtype=np.float64)
-            pft_sd   = np.array(
-                [max(float(norm_stats[n]["std"]), 1e-8) if n in norm_stats else 1.0
-                 for n in PFT_COLS], dtype=np.float64)
+            pft_mu = np.array(
+                [
+                    float(norm_stats[n]["mean"]) if n in norm_stats else 0.0
+                    for n in PFT_COLS
+                ],
+                dtype=np.float64,
+            )
+            pft_sd = np.array(
+                [
+                    max(float(norm_stats[n]["std"]), 1e-8) if n in norm_stats else 1.0
+                    for n in PFT_COLS
+                ],
+                dtype=np.float64,
+            )
             for ydict in self._pft.values():
                 for vec in ydict.values():
                     norm = (vec.astype(np.float64) - pft_mu) / pft_sd
@@ -939,8 +988,8 @@ class RamLAIDataset(LAIDataset):
                 n_drop_co2 += len(site_list)
                 continue
             row_y, row_ym1 = self._row[year], self._row[year - 1]
-            targ_y, pft_y  = self._targ[year], self._pft[year]
-            finite_y = self._finite_site_map(year)     # bulk NaN/length gate
+            targ_y, pft_y = self._targ[year], self._pft[year]
+            finite_y = self._finite_site_map(year)  # bulk NaN/length gate
             for site_id in site_list:
                 if site_id not in row_y or site_id not in row_ym1:
                     n_drop_unknown_site += 1
@@ -975,12 +1024,12 @@ class RamLAIDataset(LAIDataset):
 
     def _window(self, site_id: str, year: int) -> Optional[np.ndarray]:
         """Last `seq_length` days of the (Y-1, Y) concat, or None if invalid."""
-        ym1 = self._dyn[year - 1][self._row[year - 1][site_id]]   # (T, n_dyn)
-        y   = self._dyn[year][self._row[year][site_id]]
+        ym1 = self._dyn[year - 1][self._row[year - 1][site_id]]  # (T, n_dyn)
+        y = self._dyn[year][self._row[year][site_id]]
         full = np.concatenate([ym1, y], axis=0)
         if full.shape[0] < self.seq_length:
             return None
-        full = full[-self.seq_length:]
+        full = full[-self.seq_length :]
         if not np.all(np.isfinite(full)):
             return None
         return full.astype(np.float32, copy=False)
@@ -994,34 +1043,36 @@ class RamLAIDataset(LAIDataset):
         dyn_y, dyn_ym1 = self._dyn[year], self._dyn[year - 1]
         common = [s for s in row_y if s in row_ym1]
         if dyn_ym1.shape[1] + dyn_y.shape[1] < self.seq_length:
-            return {s: False for s in common}          # too short → all invalid
-        rows_y   = np.fromiter((row_y[s]   for s in common), np.int64, len(common))
+            return {s: False for s in common}  # too short → all invalid
+        rows_y = np.fromiter((row_y[s] for s in common), np.int64, len(common))
         rows_ym1 = np.fromiter((row_ym1[s] for s in common), np.int64, len(common))
         out: Dict[str, bool] = {}
         CHUNK = 8192
         for start in range(0, len(common), CHUNK):
             sl = slice(start, start + CHUNK)
-            full = np.concatenate([dyn_ym1[rows_ym1[sl]], dyn_y[rows_y[sl]]],
-                                  axis=1)[:, -self.seq_length:, :]
+            full = np.concatenate([dyn_ym1[rows_ym1[sl]], dyn_y[rows_y[sl]]], axis=1)[
+                :, -self.seq_length :, :
+            ]
             fin = np.isfinite(full).all(axis=(1, 2))
-            for k, s in enumerate(common[start:start + CHUNK]):
+            for k, s in enumerate(common[start : start + CHUNK]):
                 out[s] = bool(fin[k])
         return out
 
-    def _assemble_prenorm(self, dyn_window: np.ndarray,
-                          pft_vec: np.ndarray, year: int) -> np.ndarray:
+    def _assemble_prenorm(
+        self, dyn_window: np.ndarray, pft_vec: np.ndarray, year: int
+    ) -> np.ndarray:
         """Assemble the feature matrix from already-normalised pieces (no per-
         feature loop). Channel order matches _assemble_feature_matrix exactly:
         [dynamic, cyclic, co2?, pft]."""
         n_t = dyn_window.shape[0]
-        parts = [dyn_window.T]                        # (n_dyn, n_t), normalised
+        parts = [dyn_window.T]  # (n_dyn, n_t), normalised
         if self._cyclic_norm is not None:
-            parts.append(self._cyclic_norm)           # (2, n_t), normalised
+            parts.append(self._cyclic_norm)  # (2, n_t), normalised
         if self._co2_on:
-            parts.append(np.full((1, n_t), self._co2_val[year],
-                                 dtype=np.float32))
-        parts.append(np.broadcast_to(pft_vec.reshape(-1, 1),
-                                     (N_PFT, n_t)).astype(np.float32))
+            parts.append(np.full((1, n_t), self._co2_val[year], dtype=np.float32))
+        parts.append(
+            np.broadcast_to(pft_vec.reshape(-1, 1), (N_PFT, n_t)).astype(np.float32)
+        )
         return np.concatenate(parts, axis=0)
 
     # ── Dataset interface ──────────────────────────────────────────────────────
@@ -1035,32 +1086,37 @@ class RamLAIDataset(LAIDataset):
 
     def __getitem__(self, idx: int):
         site_id, year = self.index[idx]
-        feat_full = self._window(site_id, year)            # filtered → not None
-        pft_vec   = self._pft[year][site_id]
-        feat_mat  = (self._assemble_prenorm(feat_full, pft_vec, year)
-                     if self._prenorm
-                     else self._assemble_feature_matrix(feat_full, pft_vec, year))
+        feat_full = self._window(site_id, year)  # filtered → not None
+        pft_vec = self._pft[year][site_id]
+        feat_mat = (
+            self._assemble_prenorm(feat_full, pft_vec, year)
+            if self._prenorm
+            else self._assemble_feature_matrix(feat_full, pft_vec, year)
+        )
 
         if self.daily_mode == "interp":
-            target = self._targ_daily[year][site_id].copy()          # (365,)
+            target = self._targ_daily[year][site_id].copy()  # (365,)
         elif self.daily_mode == "obs":
             # 365-day grid with the real dekad obs at their DOY, NaN elsewhere:
             # the NaN-safe loss/metric then scores ONLY the true observation days.
             target = np.full(N_DAYS_YEAR, np.nan, dtype=np.float32)
             target[_OBS_POSITIONS_ARR] = self._targ[year][site_id]
         else:
-            target = self._targ[year][site_id].copy()                # (36,)
+            target = self._targ[year][site_id].copy()  # (36,)
         if self.anomaly_clim is not None:
             if self.daily_mode != "off":
-                target = target - self._anom_clim_daily[site_id]      # (365,) clim
+                target = target - self._anom_clim_daily[site_id]  # (365,) clim
             else:
                 target = target - self.anomaly_clim[site_id].astype(np.float32)
-        elif (self.normalize_lai and self.norm_stats is not None
-              and "LAI" in self.norm_stats):
+        elif (
+            self.normalize_lai
+            and self.norm_stats is not None
+            and "LAI" in self.norm_stats
+        ):
             mu = float(self.norm_stats["LAI"]["mean"])
             sd = float(self.norm_stats["LAI"]["std"])
             target = (target - mu) / max(sd, 1e-8)
 
         feat = torch.from_numpy(feat_mat)
-        tgt  = torch.from_numpy(target.reshape(1, -1).astype(np.float32))
+        tgt = torch.from_numpy(target.reshape(1, -1).astype(np.float32))
         return feat, tgt

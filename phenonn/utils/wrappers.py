@@ -75,6 +75,7 @@ class SingleDayWrapper(nn.Module):
         # Take last timestep: (batch, output_channel)
         return out[:, :, -1]
 
+
 class permuteWrapper(nn.Module):
     """
     Permutes input dimensions to match expected order for RTnn models.
@@ -99,6 +100,7 @@ class permuteWrapper(nn.Module):
     >>> y.shape
     torch.Size([32, 1])
     """
+
     def __init__(self, base_model):
         super().__init__()
         self.base_model = base_model
@@ -155,8 +157,8 @@ class LastNDaysWrapper(nn.Module):
         -------
         (batch, output_channel, n_days)
         """
-        out = self.base_model(x)          # (B, C_out, L)
-        return out[:, :, -self.n_days:]    # (B, C_out, n_days)
+        out = self.base_model(x)  # (B, C_out, L)
+        return out[:, :, -self.n_days :]  # (B, C_out, n_days)
 
 
 class Every10DaysWrapper(nn.Module):
@@ -202,9 +204,9 @@ class Every10DaysWrapper(nn.Module):
         -------
         (batch, output_channel, 36)
         """
-        out = self.base_model(x)                       # (B, C_out, L)
-        last_year = out[:, :, -365:]                   # (B, C_out, 365)
-        return last_year[:, :, self.obs_positions]     # (B, C_out, 36)
+        out = self.base_model(x)  # (B, C_out, L)
+        last_year = out[:, :, -365:]  # (B, C_out, 365)
+        return last_year[:, :, self.obs_positions]  # (B, C_out, 36)
 
 
 class DailyWrapper(nn.Module):
@@ -223,7 +225,7 @@ class DailyWrapper(nn.Module):
         self.base_model = base_model
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.base_model(x)[:, :, -365:]         # (B, C_out, 365)
+        return self.base_model(x)[:, :, -365:]  # (B, C_out, 365)
 
 
 """
@@ -238,8 +240,6 @@ Two wrappers are exported:
 The PFTMixingWrapper is functionally identical to the one in
 LaiNN/phenocam/main_bis.py
 """
-
-
 
 
 class PFTMixingWrapper(nn.Module):
@@ -277,19 +277,19 @@ class PFTMixingWrapper(nn.Module):
         daily: bool = False,
     ) -> None:
         super().__init__()
-        self.base_model    = base_model
-        self.pft_start     = pft_start
-        self.n_pft         = n_pft
-        self.renormalize   = renormalize
+        self.base_model = base_model
+        self.pft_start = pft_start
+        self.n_pft = n_pft
+        self.renormalize = renormalize
         self.sparse_output = sparse_output
         # When True, the mixed LAI is returned at EVERY day of the last year
         # (B, 1, 365) instead of the 36 dekad positions — daily-target training.
-        self.daily         = daily
+        self.daily = daily
         self.zero_pft1_lai = zero_pft1_lai
         # When True the base model was built to see only the meteo/cyclic/co2
         # channels (0 : pft_start); its pure-LAI outputs L_k then depend on
         # climate alone and the PFT fractions enter only as mixing weights below.
-        self.meteo_only    = meteo_only
+        self.meteo_only = meteo_only
 
         # When True, each per-PFT pure LAI is soft-floored at physical 0 in the
         # forward (softplus anchored at z0 = -mean/std, the physical zero in the
@@ -298,7 +298,8 @@ class PFTMixingWrapper(nn.Module):
         self.nonneg = nonneg
         if nonneg and lai_normalized and norm_stats is not None and "LAI" in norm_stats:
             self.nonneg_z0 = -float(norm_stats["LAI"]["mean"]) / max(
-                float(norm_stats["LAI"]["std"]), 1e-8)
+                float(norm_stats["LAI"]["std"]), 1e-8
+            )
         else:
             self.nonneg_z0 = 0.0
 
@@ -313,47 +314,44 @@ class PFTMixingWrapper(nn.Module):
             lai_mask[0, 0, 0] = 0.0
             if lai_normalized and norm_stats is not None and "LAI" in norm_stats:
                 lai_mean = float(norm_stats["LAI"]["mean"])
-                lai_std  = float(norm_stats["LAI"]["std"])
+                lai_std = float(norm_stats["LAI"]["std"])
                 lai_bias[0, 0, 0] = -lai_mean / max(lai_std, 1e-8)
         self.register_buffer("lai_pft_mask", lai_mask, persistent=False)
         self.register_buffer("lai_pft_bias", lai_bias, persistent=False)
 
         # Inverse z-score of the PFT input channels (so the wrapper recovers
         # physical area fractions before computing the weighted sum).
-        has_pft_norm = (
-            norm_stats is not None
-            and f"pft1_frac" in norm_stats
-        )
+        has_pft_norm = norm_stats is not None and "pft1_frac" in norm_stats
         if has_pft_norm:
             means = torch.tensor(
                 [norm_stats[f"pft{k}_frac"]["mean"] for k in range(1, n_pft + 1)],
                 dtype=torch.float32,
             ).view(1, n_pft, 1)
             stds = torch.tensor(
-                [norm_stats[f"pft{k}_frac"]["std"]  for k in range(1, n_pft + 1)],
+                [norm_stats[f"pft{k}_frac"]["std"] for k in range(1, n_pft + 1)],
                 dtype=torch.float32,
             ).view(1, n_pft, 1)
         else:
             means = torch.zeros(1, n_pft, 1, dtype=torch.float32)
-            stds  = torch.ones(1, n_pft, 1, dtype=torch.float32)
+            stds = torch.ones(1, n_pft, 1, dtype=torch.float32)
         self.register_buffer("pft_means", means)
-        self.register_buffer("pft_stds",  stds)
+        self.register_buffer("pft_stds", stds)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # In meteo_only mode the base model expects only the meteo/cyclic/co2
         # channels; the PFT block (read below for the weights) is stripped here.
         base_in = x[:, : self.pft_start, :] if self.meteo_only else x
-        out = self.base_model(base_in)                          # (B, 15, L) or (B, 15, 36)
+        out = self.base_model(base_in)  # (B, 15, L) or (B, 15, 36)
         if self.nonneg:
             # Soft floor at physical 0: L_k^norm ≥ z0 ⟺ L_k^phys ≥ 0.
             out = self.nonneg_z0 + F.softplus(out - self.nonneg_z0)
         if self.sparse_output:
             lai_pure = out
         elif self.daily:
-            lai_pure = out[:, :, -365:]                          # (B, 15, 365)
+            lai_pure = out[:, :, -365:]  # (B, 15, 365)
         else:
             last_year = out[:, :, -365:]
-            lai_pure  = last_year[:, :, self.obs_positions]      # (B, 15, 36)
+            lai_pure = last_year[:, :, self.obs_positions]  # (B, 15, 36)
 
         # PFT-1 override (bare soil → physical 0)
         lai_pure = lai_pure * self.lai_pft_mask + self.lai_pft_bias
@@ -366,4 +364,4 @@ class PFTMixingWrapper(nn.Module):
             tot = pft_real.sum(dim=1, keepdim=True).clamp(min=1e-6)
             pft_real = pft_real / tot
 
-        return (lai_pure * pft_real).sum(dim=1, keepdim=True)    # (B, 1, 36)
+        return (lai_pure * pft_real).sum(dim=1, keepdim=True)  # (B, 1, 36)

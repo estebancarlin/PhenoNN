@@ -29,7 +29,7 @@ def doy_of_positions(seq_length: int) -> np.ndarray:
     """1-based DOY (365-day calendar) for each of the `seq_length` window
     positions, with the LAST position = DOY 365 and wrapping backwards."""
     back = (seq_length - 1 - np.arange(seq_length)) % 365
-    return 365 - back                       # 1 (oldest wrap) .. 365 (last day)
+    return 365 - back  # 1 (oldest wrap) .. 365 (last day)
 
 
 def season_mask(seq_length: int, ranges) -> np.ndarray:
@@ -43,19 +43,19 @@ def season_mask(seq_length: int, ranges) -> np.ndarray:
     for lo, hi in ranges:
         if lo <= hi:
             m |= (doy >= lo) & (doy <= hi)
-        else:                               # wrap around Dec→Jan
+        else:  # wrap around Dec→Jan
             m |= (doy >= lo) | (doy <= hi)
     return m
 
 
 # Named DOY windows (non-leap calendar) for the seasonal scenarios.
 SEASONS = {
-    "year":   None,
-    "summer": [(152, 243)],                 # Jun 1 – Aug 31 (JJA)
-    "winter": [(335, 59)],                  # Dec 1 – Feb 28 (DJF, wraps)
-    "spring": [(60, 151)],                  # Mar 1 – May 31 (MAM)
-    "autumn": [(244, 334)],                 # Sep 1 – Nov 30 (SON)
-    "growing": [(91, 304)],                 # Apr 1 – Oct 31
+    "year": None,
+    "summer": [(152, 243)],  # Jun 1 – Aug 31 (JJA)
+    "winter": [(335, 59)],  # Dec 1 – Feb 28 (DJF, wraps)
+    "spring": [(60, 151)],  # Mar 1 – May 31 (MAM)
+    "autumn": [(244, 334)],  # Sep 1 – Nov 30 (SON)
+    "growing": [(91, 304)],  # Apr 1 – Oct 31
 }
 
 
@@ -80,7 +80,7 @@ class Perturbation:
         if not channels:
             raise SystemExit("Perturbation needs at least one channel.")
         self.channels = list(channels)
-        self.norm_stats = norm_stats                 # None → inputs are raw
+        self.norm_stats = norm_stats  # None → inputs are raw
         self.season_ranges = season_ranges
         self._mask_cache: dict = {}
 
@@ -93,20 +93,19 @@ class Perturbation:
     def apply(self, x: torch.Tensor) -> torch.Tensor:
         """Return a perturbed copy of the normalized input x (B, C, L)."""
         seq_length = x.shape[2]
-        mask = self._mask(seq_length, x.device)      # (L,)
+        mask = self._mask(seq_length, x.device)  # (L,)
         keep = 1.0 - mask
         x = x.clone()
         for cp in self.channels:
-            z = x[:, cp.ch, :]                       # (B, L), normalized
+            z = x[:, cp.ch, :]  # (B, L), normalized
             if self.norm_stats is not None:
                 st = self.norm_stats.get(cp.feature)
                 if st is None:
-                    raise SystemExit(
-                        f"norm_stats has no entry for {cp.feature!r}.")
+                    raise SystemExit(f"norm_stats has no entry for {cp.feature!r}.")
                 mu = float(st["mean"])
                 sd = max(float(st["std"]), 1e-8)
                 phys = torch.expm1(z * sd + mu) if cp.is_log else z * sd + mu
-            else:                                    # raw inputs: z IS physical
+            else:  # raw inputs: z IS physical
                 mu, sd = 0.0, 1.0
                 phys = z
             phys_new = phys * cp.mul + cp.add

@@ -51,24 +51,30 @@ def _seed_all(seed):
 
 def _is_done(args_i):
     """train_one_config writes exp_dir/config.json LAST → its presence = done."""
-    return os.path.exists(os.path.join(args_i.output_dir, args_i.experiment,
-                                       "config.json"))
+    return os.path.exists(
+        os.path.join(args_i.output_dir, args_i.experiment, "config.json")
+    )
 
 
 def main():
     ap = argparse.ArgumentParser(add_help=False)
-    ap.add_argument("--models", default=",".join(MODELS),
-                    help="Comma list of models to sweep on the ONE shared load.")
+    ap.add_argument(
+        "--models",
+        default=",".join(MODELS),
+        help="Comma list of models to sweep on the ONE shared load.",
+    )
     known, rest = ap.parse_known_args()
     models = [m.strip() for m in known.models.split(",") if m.strip()]
     for m in models:
         if m not in MODELS:
             raise SystemExit(f"unknown model {m!r}; choose from {MODELS}")
 
-    base_args = T.parse_args(rest)          # standard train_full_ram CLI
+    base_args = T.parse_args(rest)  # standard train_full_ram CLI
     if base_args.anomaly_mode:
-        raise SystemExit("run_sweep_multi is nonanomaly-only (single shared "
-                         "load). Use run_sweep_inproc --group anomaly instead.")
+        raise SystemExit(
+            "run_sweep_multi is nonanomaly-only (single shared "
+            "load). Use run_sweep_inproc --group anomaly instead."
+        )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.backends.cudnn.benchmark = True
@@ -77,11 +83,16 @@ def main():
 
     sweep_dir = os.path.join(base_args.output_dir, "sweep_multi_nonanomaly")
     FileUtils.makedir(sweep_dir)
-    load_logger = Logger(console_output=True, file_output=True,
-                         log_file=os.path.join(sweep_dir, "load.log"))
+    load_logger = Logger(
+        console_output=True,
+        file_output=True,
+        log_file=os.path.join(sweep_dir, "load.log"),
+    )
     total = sum(len(plan(m, _GROUP)) for m in models)
-    load_logger.show_header(f"PhenoNN multi-model sweep — {models} "
-                            f"[{_GROUP}] ({total} configs, ONE shared load)")
+    load_logger.show_header(
+        f"PhenoNN multi-model sweep — {models} "
+        f"[{_GROUP}] ({total} configs, ONE shared load)"
+    )
 
     # ── Load the resident datasets ONCE for ALL models ──
     _seed_all(base_args.seed)
@@ -104,8 +115,11 @@ def main():
 
             log_dir = os.path.join(args_i.output_dir, args_i.experiment, "logs")
             FileUtils.makedir(log_dir)
-            cfg_logger = Logger(console_output=True, file_output=True,
-                                log_file=os.path.join(log_dir, "train.log"))
+            cfg_logger = Logger(
+                console_output=True,
+                file_output=True,
+                log_file=os.path.join(log_dir, "train.log"),
+            )
             cfg_logger.show_header(f"{model} [{_GROUP}] idx {i}: {entry['name']}")
 
             # Reset seeds before each build so model init is reproducible and

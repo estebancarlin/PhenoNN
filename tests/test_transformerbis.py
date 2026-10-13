@@ -10,12 +10,12 @@ import unittest
 import torch
 import sys
 import os
-from phenonn.models.transformerbis import (
+from legacy.models.transformerbis import (
     CombinedModel,
     BiTransformer,
     PositionalEncoding,
 )
-from phenonn.utils.model_utils import ModelUtils
+from legacy.utils.model_utils import ModelUtils
 
 
 class TestPositionalEncoding(unittest.TestCase):

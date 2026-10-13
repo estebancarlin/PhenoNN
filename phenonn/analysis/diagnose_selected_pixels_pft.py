@@ -67,7 +67,7 @@ import warnings
 
 import numpy as np
 
-PFT_FNAME = "PFTmap_{year}.nc"        # == phenonn.utils.config.PFT_FNAME (kept local)
+PFT_FNAME = "PFTmap_{year}.nc"  # == phenonn.utils.config.PFT_FNAME (kept local)
 THRESHOLDS = (0.5, 0.7, 0.9)
 
 
@@ -83,18 +83,20 @@ def _pft_array(dp):
         if "time_counter" in da.dims:
             da = da.isel(time_counter=0, drop=True)
     else:
-        cand = [v for v in dp.data_vars
-                if ("pft" in dp[v].dims or "veget" in dp[v].dims)
-                and "site" in dp[v].dims]
+        cand = [
+            v
+            for v in dp.data_vars
+            if ("pft" in dp[v].dims or "veget" in dp[v].dims) and "site" in dp[v].dims
+        ]
         if not cand:
             raise ValueError(
                 f"No PFT variable with a (pft|veget, site) layout in "
-                f"{list(dp.data_vars)}.")
+                f"{list(dp.data_vars)}."
+            )
         da = dp[cand[0]]
     pdim = "pft" if "pft" in da.dims else "veget"
     fr = da.transpose(pdim, "site").values.astype(np.float32)
-    sid = (np.asarray(dp["site_id"].values).astype(str)
-           if "site_id" in dp else None)
+    sid = np.asarray(dp["site_id"].values).astype(str) if "site_id" in dp else None
     return fr, sid
 
 
@@ -113,7 +115,8 @@ def _align(fr_src, sid_pft, sid_sel):
         if fr_src.shape[1] != sid_sel.size:
             raise ValueError(
                 f"PFT file has no site_id and its site count ({fr_src.shape[1]}) "
-                f"!= selected sites ({sid_sel.size}); cannot align.")
+                f"!= selected sites ({sid_sel.size}); cannot align."
+            )
         out = fr_src
     return out
 
@@ -141,53 +144,65 @@ def read_and_dump(sel_path, pft_dir, year_start, year_end, npz):
         frs.append(_align(fr_src, sid_pft, sid_sel))
         years.append(y)
     if not frs:
-        raise SystemExit(f"No PFTmap_*.nc found in {pft_dir} for "
-                         f"{year_start}..{year_end}.")
+        raise SystemExit(
+            f"No PFTmap_*.nc found in {pft_dir} for " f"{year_start}..{year_end}."
+        )
 
-    A = np.stack(frs, axis=0)                       # (T, n_pft, n_site) float32
+    A = np.stack(frs, axis=0)  # (T, n_pft, n_site) float32
     years = np.asarray(years, dtype=np.int32)
     T, n_pft, _ = A.shape
-    present = np.isfinite(A).any(axis=1)            # (T, n_site)
-    n_present = present.sum(axis=0)                 # (n_site,)
+    present = np.isfinite(A).any(axis=1)  # (T, n_site)
+    n_present = present.sum(axis=0)  # (n_site,)
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)   # all-NaN slices
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN slices
         # Per-year threshold counts over sites (nan > t → False).
         counts = np.stack(
-            [(A > t).sum(axis=2) for t in THRESHOLDS], axis=2)  # (T, n_pft, 3)
+            [(A > t).sum(axis=2) for t in THRESHOLDS], axis=2
+        )  # (T, n_pft, 3)
 
         # Mean fraction over years (ignoring absent years).
-        fr_mean = np.nanmean(A, axis=0)            # (n_pft, n_site)
+        fr_mean = np.nanmean(A, axis=0)  # (n_pft, n_site)
 
         # Metric 4 — temporal instability per cell.
-        absdev = np.abs(A - fr_mean[None, :, :])   # (T, n_pft, n_site)
-        d = 0.5 * np.nansum(absdev, axis=1)        # (T, n_site)  ½ Σ_i |p_t-p̄|
+        absdev = np.abs(A - fr_mean[None, :, :])  # (T, n_pft, n_site)
+        d = 0.5 * np.nansum(absdev, axis=1)  # (T, n_site)  ½ Σ_i |p_t-p̄|
         d = np.where(present, d, np.nan)
         instab = np.where(n_present >= 2, np.nanmean(d, axis=0), np.nan)
 
         # Metric 1 — interannual turnover per cell + per year pair.
         if T >= 2:
-            dA = np.abs(A[1:] - A[:-1])            # (T-1, n_pft, n_site)
-            pair = present[1:] & present[:-1]      # (T-1, n_site)
+            dA = np.abs(A[1:] - A[:-1])  # (T-1, n_pft, n_site)
+            pair = present[1:] & present[:-1]  # (T-1, n_site)
             half = np.where(pair, 0.5 * np.nansum(dA, axis=1), np.nan)  # (T-1, n_site)
-            turnover_cell = np.where(pair.sum(axis=0) >= 1,
-                                     np.nanmean(half, axis=0), np.nan)
+            turnover_cell = np.where(
+                pair.sum(axis=0) >= 1, np.nanmean(half, axis=0), np.nan
+            )
             turnover_year = np.array(
-                [np.nanmean(half[t]) if pair[t].any() else np.nan
-                 for t in range(T - 1)], dtype=np.float32)
+                [
+                    np.nanmean(half[t]) if pair[t].any() else np.nan
+                    for t in range(T - 1)
+                ],
+                dtype=np.float32,
+            )
         else:
             turnover_cell = np.full(n_site, np.nan, dtype=np.float32)
             turnover_year = np.zeros(0, dtype=np.float32)
 
     lon = np.where(lon > 180.0, lon - 360.0, lon)  # 0..360 → -180..180
-    np.savez(npz,
-             lon=lon, lat=lat, years=years, n_site=int(n_site),
-             n_present=n_present.astype(np.int32),
-             counts=counts.astype(np.int64),
-             fr_mean=fr_mean.astype(np.float32),
-             instab=instab.astype(np.float32),
-             turnover_cell=turnover_cell.astype(np.float32),
-             turnover_year=turnover_year.astype(np.float32))
+    np.savez(
+        npz,
+        lon=lon,
+        lat=lat,
+        years=years,
+        n_site=int(n_site),
+        n_present=n_present.astype(np.int32),
+        counts=counts.astype(np.int64),
+        fr_mean=fr_mean.astype(np.float32),
+        instab=instab.astype(np.float32),
+        turnover_cell=turnover_cell.astype(np.float32),
+        turnover_year=turnover_year.astype(np.float32),
+    )
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(0)
@@ -200,11 +215,11 @@ def _pft_names(n_pft):
     """PFT labels from phenonn.utils.config with a generic fallback (main process only,
     so the reader child never pulls phenon in)."""
     try:
-        sys.path.insert(
-            0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from phenonn.utils.config import PFT_NAMES
+
         names = list(PFT_NAMES)
-    except Exception:                              # noqa: BLE001
+    except Exception:  # noqa: BLE001
         names = []
     names += [""] * max(0, n_pft - len(names))
     return names[:n_pft]
@@ -213,17 +228,19 @@ def _pft_names(n_pft):
 def _print_reports(d, names):
     lon, lat = d["lon"], d["lat"]
     years = d["years"]
-    counts = d["counts"]              # (T, n_pft, 3)
+    counts = d["counts"]  # (T, n_pft, 3)
     instab = d["instab"]
     turnover_year = d["turnover_year"]
     n_site = int(d["n_site"])
     n_present = d["n_present"]
     n_pft = counts.shape[1]
 
-    print(f"{n_site:,} selected sites  |  {len(years)} years "
-          f"[{years.min()}..{years.max()}]  |  "
-          f"lat [{lat.min():.1f}, {lat.max():.1f}]  "
-          f"lon [{lon.min():.1f}, {lon.max():.1f}]")
+    print(
+        f"{n_site:,} selected sites  |  {len(years)} years "
+        f"[{years.min()}..{years.max()}]  |  "
+        f"lat [{lat.min():.1f}, {lat.max():.1f}]  "
+        f"lon [{lon.min():.1f}, {lon.max():.1f}]"
+    )
 
     # ── Per-year threshold counts ──
     print("\n" + "=" * 62)
@@ -235,8 +252,10 @@ def _print_reports(d, names):
         print("  " + "-" * 49)
         for k in range(n_pft):
             c = counts[t, k]
-            print(f"  {k + 1:>3}  {names[k]:<22}"
-                  f"{int(c[0]):>8,}{int(c[1]):>8,}{int(c[2]):>8,}")
+            print(
+                f"  {k + 1:>3}  {names[k]:<22}"
+                f"{int(c[0]):>8,}{int(c[1]):>8,}{int(c[2]):>8,}"
+            )
 
     # ── Metric 1: interannual turnover ──
     print("\n" + "=" * 62)
@@ -247,13 +266,14 @@ def _print_reports(d, names):
         print("  " + "-" * 46)
         for t in range(turnover_year.size):
             half = float(turnover_year[t])
-            print(f"  {years[t]}→{years[t + 1]:<8}"
-                  f"{2 * half:>18.4f}{half:>16.4f}")
+            print(f"  {years[t]}→{years[t + 1]:<8}" f"{2 * half:>18.4f}{half:>16.4f}")
         good = turnover_year[np.isfinite(turnover_year)]
         if good.size:
             print("  " + "-" * 46)
-            print(f"  {'mean all pairs':<14}"
-                  f"{2 * good.mean():>18.4f}{good.mean():>16.4f}")
+            print(
+                f"  {'mean all pairs':<14}"
+                f"{2 * good.mean():>18.4f}{good.mean():>16.4f}"
+            )
     else:
         print("  (needs ≥ 2 years)")
 
@@ -263,11 +283,15 @@ def _print_reports(d, names):
     print("=" * 62)
     fin = instab[np.isfinite(instab)]
     n_ge2 = int(np.sum(n_present >= 2))
-    print(f"  cells scored (≥2 valid years): {fin.size:,} / {n_site:,}  "
-          f"(≥2-year cells: {n_ge2:,})")
+    print(
+        f"  cells scored (≥2 valid years): {fin.size:,} / {n_site:,}  "
+        f"(≥2-year cells: {n_ge2:,})"
+    )
     if fin.size:
-        print(f"  mean={fin.mean():.4f}  median={np.median(fin):.4f}  "
-              f"p90={np.percentile(fin, 90):.4f}  max={fin.max():.4f}")
+        print(
+            f"  mean={fin.mean():.4f}  median={np.median(fin):.4f}  "
+            f"p90={np.percentile(fin, 90):.4f}  max={fin.max():.4f}"
+        )
         edges = [0.0, 0.02, 0.05, 0.10, 0.20, 0.40, 1.01]
         print("  distribution (cells per instability band):")
         for lo, hi in zip(edges[:-1], edges[1:]):
@@ -298,15 +322,19 @@ def _try_cartopy():
     try:
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
+
         return True, ccrs, cfeature
     except ImportError:
-        print("[warn] cartopy not installed — no coastlines "
-              "(`pip install cartopy`). Plain lon/lat grids.")
+        print(
+            "[warn] cartopy not installed — no coastlines "
+            "(`pip install cartopy`). Plain lon/lat grids."
+        )
         return False, None, None
 
 
 def _plot_composition(d, names, args, have_cartopy, ccrs, cfeature):
     import matplotlib.pyplot as plt
+
     lon, lat, fr_mean = d["lon"], d["lat"], d["fr_mean"]
     years = d["years"]
     n_pft = fr_mean.shape[0]
@@ -318,41 +346,65 @@ def _plot_composition(d, names, args, have_cartopy, ccrs, cfeature):
     gs = fig.add_gridspec(nrows, ncols)
     last_sc = None
     for k in range(n_pft):
-        ax, tkw = _new_axes(fig, gs[k // ncols, k % ncols],
-                            have_cartopy, ccrs, cfeature)
+        ax, tkw = _new_axes(
+            fig, gs[k // ncols, k % ncols], have_cartopy, ccrs, cfeature
+        )
         ax.scatter(lon, lat, s=0.5, c="0.85", edgecolors="none", zorder=2, **tkw)
         m = fr_mean[k] > thr
         if m.any():
-            last_sc = ax.scatter(lon[m], lat[m], s=args.markersize,
-                                 c=fr_mean[k][m], cmap="viridis",
-                                 vmin=thr, vmax=1.0, edgecolors="none",
-                                 zorder=3, **tkw)
-        ax.set_title(f"PFT{k + 1} {names[k]}  (n>{thr:g} = {int(m.sum()):,})",
-                     fontsize=8)
+            last_sc = ax.scatter(
+                lon[m],
+                lat[m],
+                s=args.markersize,
+                c=fr_mean[k][m],
+                cmap="viridis",
+                vmin=thr,
+                vmax=1.0,
+                edgecolors="none",
+                zorder=3,
+                **tkw,
+            )
+        ax.set_title(
+            f"PFT{k + 1} {names[k]}  (n>{thr:g} = {int(m.sum()):,})", fontsize=8
+        )
     if last_sc is not None:
         cb = fig.colorbar(last_sc, ax=fig.axes, shrink=0.6, fraction=0.02, pad=0.02)
         cb.set_label(f"mean PFT fraction (> {thr:g})")
-    fig.suptitle(f"{os.path.basename(args.selected_pixels)} — mean PFT "
-                 f"composition over {years.min()}..{years.max()}", fontsize=11)
+    fig.suptitle(
+        f"{os.path.basename(args.selected_pixels)} — mean PFT "
+        f"composition over {years.min()}..{years.max()}",
+        fontsize=11,
+    )
     _save(fig, args.output, args.dpi)
 
 
-def _plot_scalar_map(d, val, title, cmap, out_path, args,
-                     have_cartopy, ccrs, cfeature, vmax=None):
+def _plot_scalar_map(
+    d, val, title, cmap, out_path, args, have_cartopy, ccrs, cfeature, vmax=None
+):
     import matplotlib.pyplot as plt
+
     lon, lat = d["lon"], d["lat"]
     fin = np.isfinite(val)
     if vmax is None:
         vmax = float(np.percentile(val[fin], 98)) if fin.any() else 1.0
     vmax = max(vmax, 1e-6)
     fig = plt.figure(figsize=(14, 7))
-    ax, tkw = _new_axes(fig, fig.add_gridspec(1, 1)[0, 0],
-                        have_cartopy, ccrs, cfeature)
-    ax.scatter(lon[~fin], lat[~fin], s=0.5, c="0.85", edgecolors="none",
-               zorder=2, **tkw)
-    sc = ax.scatter(lon[fin], lat[fin], s=args.markersize, c=val[fin],
-                    cmap=cmap, vmin=0.0, vmax=vmax, edgecolors="none",
-                    zorder=3, **tkw)
+    ax, tkw = _new_axes(fig, fig.add_gridspec(1, 1)[0, 0], have_cartopy, ccrs, cfeature)
+    ax.scatter(
+        lon[~fin], lat[~fin], s=0.5, c="0.85", edgecolors="none", zorder=2, **tkw
+    )
+    sc = ax.scatter(
+        lon[fin],
+        lat[fin],
+        s=args.markersize,
+        c=val[fin],
+        cmap=cmap,
+        vmin=0.0,
+        vmax=vmax,
+        edgecolors="none",
+        zorder=3,
+        **tkw,
+    )
     cb = fig.colorbar(sc, ax=ax, shrink=0.7, pad=0.02)
     cb.set_label(title)
     ax.set_title(f"{os.path.basename(args.selected_pixels)} — {title}")
@@ -361,14 +413,19 @@ def _plot_scalar_map(d, val, title, cmap, out_path, args,
 
 def _plot_hist(val, title, out_path, args):
     import matplotlib.pyplot as plt
+
     fin = val[np.isfinite(val)]
     fig, ax = plt.subplots(figsize=(9, 5))
     if fin.size:
         ax.hist(fin, bins=60, color="#c0392b", alpha=0.85)
-        ax.axvline(fin.mean(), color="k", lw=1, ls="--",
-                   label=f"mean={fin.mean():.3f}")
-        ax.axvline(np.median(fin), color="0.4", lw=1, ls=":",
-                   label=f"median={np.median(fin):.3f}")
+        ax.axvline(fin.mean(), color="k", lw=1, ls="--", label=f"mean={fin.mean():.3f}")
+        ax.axvline(
+            np.median(fin),
+            color="0.4",
+            lw=1,
+            ls=":",
+            label=f"median={np.median(fin):.3f}",
+        )
         ax.legend()
     ax.set_xlabel(title)
     ax.set_ylabel("number of cells")
@@ -378,6 +435,7 @@ def _plot_hist(val, title, out_path, args):
 
 def _save(fig, out_path, dpi):
     import matplotlib.pyplot as plt
+
     out_dir = os.path.dirname(out_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -388,7 +446,8 @@ def _save(fig, out_path, dpi):
 
 def render(npz, args):
     import matplotlib
-    matplotlib.use("Agg")                 # headless server (save to file)
+
+    matplotlib.use("Agg")  # headless server (save to file)
 
     d = np.load(npz)
     n_pft = d["fr_mean"].shape[0]
@@ -401,16 +460,35 @@ def render(npz, args):
 
     _plot_composition(d, names, args, have_cartopy, ccrs, cfeature)
     if d["turnover_cell"].size and np.isfinite(d["turnover_cell"]).any():
-        _plot_scalar_map(d, d["turnover_cell"],
-                         "interannual turnover (½·Σ|Δp|, mean over year pairs)",
-                         "magma", stem + "_turnover_map.png", args,
-                         have_cartopy, ccrs, cfeature)
+        _plot_scalar_map(
+            d,
+            d["turnover_cell"],
+            "interannual turnover (½·Σ|Δp|, mean over year pairs)",
+            "magma",
+            stem + "_turnover_map.png",
+            args,
+            have_cartopy,
+            ccrs,
+            cfeature,
+        )
     if np.isfinite(d["instab"]).any():
-        _plot_hist(d["instab"], "temporal instability (metric 4)",
-                   stem + "_instability_hist.png", args)
-        _plot_scalar_map(d, d["instab"], "temporal instability (metric 4)",
-                         "magma", stem + "_instability_map.png", args,
-                         have_cartopy, ccrs, cfeature)
+        _plot_hist(
+            d["instab"],
+            "temporal instability (metric 4)",
+            stem + "_instability_hist.png",
+            args,
+        )
+        _plot_scalar_map(
+            d,
+            d["instab"],
+            "temporal instability (metric 4)",
+            "magma",
+            stem + "_instability_map.png",
+            args,
+            have_cartopy,
+            ccrs,
+            cfeature,
+        )
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -418,20 +496,33 @@ def render(npz, args):
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--selected_pixels", required=True,
-                   help="selected_pixels*.nc (site dim: latitude/longitude/site_id).")
-    p.add_argument("--pft_dir", required=True,
-                   help="Folder of yearly PFT pixelset files PFTmap_{Y}.nc "
-                        "(pft_frac(pft, site)); joined to the sites by site_id.")
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--selected_pixels",
+        required=True,
+        help="selected_pixels*.nc (site dim: latitude/longitude/site_id).",
+    )
+    p.add_argument(
+        "--pft_dir",
+        required=True,
+        help="Folder of yearly PFT pixelset files PFTmap_{Y}.nc "
+        "(pft_frac(pft, site)); joined to the sites by site_id.",
+    )
     p.add_argument("--year_start", type=int, required=True)
-    p.add_argument("--year_end",   type=int, required=True)
-    p.add_argument("--output", default="selected_pixels_pft_diag.png",
-                   help="Composition-map PNG; the turnover/instability PNGs "
-                        "reuse its stem.")
-    p.add_argument("--map_threshold", type=float, default=0.5,
-                   help="Only map sites whose MEAN PFT fraction exceeds this "
-                        "(default 0.5). The printed table always uses 0.5/0.7/0.9.")
+    p.add_argument("--year_end", type=int, required=True)
+    p.add_argument(
+        "--output",
+        default="runs/selected_pixels_pft_diag.png",
+        help="Composition-map PNG; the turnover/instability PNGs " "reuse its stem.",
+    )
+    p.add_argument(
+        "--map_threshold",
+        type=float,
+        default=0.5,
+        help="Only map sites whose MEAN PFT fraction exceeds this "
+        "(default 0.5). The printed table always uses 0.5/0.7/0.9.",
+    )
     p.add_argument("--markersize", type=float, default=4.0)
     p.add_argument("--dpi", type=int, default=150)
     # Internal: set on the reader child so it dumps the .npz and exits.
@@ -444,21 +535,34 @@ def main():
 
     # ── Reader child: aggregate + dump, then hard-exit ──
     if args._read_npz:
-        read_and_dump(args.selected_pixels, args.pft_dir,
-                      args.year_start, args.year_end, args._read_npz)
-        return                              # unreachable (os._exit above)
+        read_and_dump(
+            args.selected_pixels,
+            args.pft_dir,
+            args.year_start,
+            args.year_end,
+            args._read_npz,
+        )
+        return  # unreachable (os._exit above)
 
     # ── Main / plotter: spawn the reader, then draw (no netCDF4 here) ──
     fd, npz = tempfile.mkstemp(suffix=".npz")
     os.close(fd)
     try:
         subprocess.run(
-            [sys.executable, os.path.abspath(__file__),
-             "--selected_pixels", args.selected_pixels,
-             "--pft_dir", args.pft_dir,
-             "--year_start", str(args.year_start),
-             "--year_end", str(args.year_end),
-             "--_read_npz", npz],
+            [
+                sys.executable,
+                os.path.abspath(__file__),
+                "--selected_pixels",
+                args.selected_pixels,
+                "--pft_dir",
+                args.pft_dir,
+                "--year_start",
+                str(args.year_start),
+                "--year_end",
+                str(args.year_end),
+                "--_read_npz",
+                npz,
+            ],
             check=True,
         )
         if not os.path.exists(npz) or os.path.getsize(npz) == 0:
@@ -467,8 +571,9 @@ def main():
     except subprocess.CalledProcessError as e:
         raise SystemExit(
             f"Reader child failed (exit {e.returncode}) while reading the .nc "
-            f"files. If it core-dumped in HDF5, try engine=\"h5netcdf\" in "
-            f"read_and_dump.")
+            f'files. If it core-dumped in HDF5, try engine="h5netcdf" in '
+            f"read_and_dump."
+        )
     finally:
         if os.path.exists(npz):
             os.remove(npz)
