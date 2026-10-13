@@ -35,7 +35,6 @@ Key Features
    data_preparation
    training
    prediction
-   hyperparameter_tuning
 
 .. toctree::
    :maxdepth: 2

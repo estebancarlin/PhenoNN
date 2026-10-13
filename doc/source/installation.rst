@@ -4,57 +4,54 @@ Installation
 Prerequisites
 -------------
 
-- Python 3.8 or higher
-- PyTorch 2.4.0 or higher
-- CUDA-capable GPU (optional, for faster training)
-- Git (for cloning the repository)
+- Python 3.10 or higher.
+- PyTorch 2.0 or higher.
+- CUDA-capable GPU (optional, for faster training).
+- Git (to clone the repository).
 
-Installing uv Package Manager
------------------------------
+Installing the ``uv`` package manager
+-------------------------------------
 
-uv is a fast Python package installer and resolver. Install it using:
+``uv`` is a fast Python package installer and resolver. Install it with:
 
 .. code-block:: bash
 
-   # Install uv using curl (Linux/macOS)
-   curl -LsSf https://astral.sh/uv/install.sh | sh
+    # Linux / macOS
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 
 You should see output similar to:
 
 .. code-block:: text
 
-   downloading uv 0.11.2 x86_64-unknown-linux-gnu
-   installing to /home/username/.local/bin
-     uv
-     uvx
-   everything's installed!
+    downloading uv 0.11.2 x86_64-unknown-linux-gnu
+    installing to /home/username/.local/bin
+      uv
+      uvx
+    everything's installed!
 
-Add uv to your PATH
-~~~~~~~~~~~~~~~~~~~
+Add ``uv`` to your ``PATH``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To use uv from anywhere, add it to your shell configuration:
-
-.. code-block:: bash
-
-   # Add to ~/.bashrc
-   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-
-   # Reload your shell configuration
-   source ~/.bashrc
-
-Verify the installation:
+To use ``uv`` from anywhere, add it to your shell configuration:
 
 .. code-block:: bash
 
-   uv --version
-   which uv
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+    source ~/.bashrc
 
-You should see:
+Verify:
+
+.. code-block:: bash
+
+    uv --version
+    which uv
+
+Expected output:
 
 .. code-block:: text
 
-   uv 0.11.2
-   /home/username/.local/bin/uv
+    uv 0.11.2
+    /home/username/.local/bin/uv
 
 Installing PhenoNN
 ------------------
@@ -63,142 +60,139 @@ Installing PhenoNN
 
    .. code-block:: bash
 
-      git clone https://github.com/kardaneh/PhenoNN.git
-      cd PhenoNN
+       git clone https://github.com/kardaneh/PhenoNN.git
+       cd PhenoNN
 
 2. **Create a virtual environment**:
 
    .. code-block:: bash
 
-      uv venv --python 3.8 # or 3.9, 3.10, 3.11, 3.12
+       uv venv --python 3.10     # or 3.11, 3.12
 
-   This creates a virtual environment in the ``.venv`` directory.
+   That creates a virtual environment in ``.venv``.
 
 3. **Activate the virtual environment**:
 
    .. code-block:: bash
 
-      # Linux/macOS
-      source .venv/bin/activate
+       source .venv/bin/activate
 
-   You should see ``(PhenoNN)`` appear at the beginning of your terminal prompt.
+   The prompt now starts with ``(PhenoNN)`` or the name of the
+   environment you activated.
 
-4. **Install PhenoNN with all dependencies**:
+4. **Install PhenoNN in editable mode**:
 
-   For basic installation:
+   Base install (only what the package needs at runtime)::
 
-   .. code-block:: bash
+       uv pip install -e .
 
-      uv pip install -e .
+   Developer install (adds pytest, ruff, black, pydocstyle,
+   pre-commit)::
 
-   For installation with documentation dependencies (for building docs):
+       uv pip install -e ".[dev]"
 
-   .. code-block:: bash
+   Documentation install (adds Sphinx and its extensions)::
 
-      uv pip install -e ".[docs]"
+       uv pip install -e ".[docs]"
 
-   For installation with development dependencies (testing, formatting):
+   Both at once::
 
-   .. code-block:: bash
+       uv pip install -e ".[dev,docs]"
 
-      uv pip install -e ".[dev]"
-
-   To install all extras:
-
-   .. code-block:: bash
-
-      uv pip install -e ".[ci,docs,dev]"
+   The ``-e`` flag installs the package in editable mode: changes to
+   the Python source are picked up immediately, without a reinstall.
 
 Verification
 ------------
 
-Verify the installation by running:
+After installation, check the environment:
 
 .. code-block:: bash
 
-   # Check Python version
-   python --version
+    # Python version
+    python --version
 
-   # Check PhenoNN installation
-   python  tests/test_phenonn_installation.py
-   # Should print "SUCCESS! PhenoNN is fully installed and ready to use!"
+    # Installation smoke test — imports, public API, model factory, CLI
+    python tests/test_phenonn_installation.py
 
-   # Check CLI
-   phenonn --help
+    # CLI
+    phenonn --version
+    phenonn --help
 
-   # Check PyTorch installation
-   python -c "import torch; print(f'PyTorch {torch.__version__}')"
+    # PyTorch
+    python -c "import torch; print(f'PyTorch {torch.__version__}')"
 
-You should see output similar to:
+The smoke test prints one line per group and a final summary. On success
+the last line is::
 
-.. code-block:: text
+    ✅ All checks passed — PhenoNN is ready to use.
 
-   Python 3.10.12
-   0.1.0
-   usage: phenonn [-h] [--version] {predict,train,hp-tuning} ...
-   PyTorch 2.4.1
+If a group fails, the line names the module or attribute that could not
+be imported, which is enough to pinpoint the problem.
 
 Dependencies
 ------------
 
-PhenoNN automatically installs the following main dependencies:
+``uv pip install -e .`` installs the runtime dependencies declared in
+``pyproject.toml``:
 
-- **PyTorch** >= 2.4.0: Deep learning framework
-- **NumPy** >= 1.20.0: Numerical computing
-- **Pandas** >= 2.0.3: Data manipulation
-- **Matplotlib** >= 3.3.0: Plotting and visualization
-- **Scikit-learn** >= 1.3.2: Machine learning metrics
-- **SciPy** >= 1.10.1: Scientific computing
-- **TQDM** >= 4.65.1: Progress bars
-- **Xarray** >= 2023.1.0: Labeled multi-dimensional arrays
-- **NetCDF4** >= 1.7.2: NetCDF file support
-- **Seaborn** >= 0.13.2: Statistical data visualization
+- **PyTorch** ≥ 2.0 — deep learning framework
+- **NumPy** ≥ 1.24
+- **Pandas** ≥ 2.0
+- **Xarray** ≥ 2023.1
+- **netCDF4** ≥ 1.6
+- **h5netcdf** ≥ 1.1
+- **Matplotlib** ≥ 3.6
+- **SciPy** ≥ 1.10
+- **scikit-learn** ≥ 1.3
+- **rich** ≥ 13.0 — console output
+- **tqdm** ≥ 4.65
+- **mpltex** ≥ 0.7 — Matplotlib styles used by the diagnostic plots
 
-Optional Dependencies
----------------------
+Optional extras
+~~~~~~~~~~~~~~~
 
-If you installed with extras:
-
-- **docs**: Sphinx and related packages for building documentation
-- **dev**: Development tools (pre-commit, ruff, pytest)
-
+- **dev** — ``pytest``, ``pytest-cov``, ``ruff``, ``black``,
+  ``pydocstyle``, ``pre-commit``. Needed to run the test suite and the
+  linters.
+- **docs** — Sphinx, ``myst-parser``, ``sphinx-rtd-theme``,
+  ``sphinx-copybutton``, ``sphinx-autodoc-typehints``,
+  ``sphinx-autoapi``. Needed to build the documentation locally.
 
 Troubleshooting
 ---------------
 
-If you encounter issues:
+**ModuleNotFoundError**
 
-**1. ModuleNotFoundError**
+The virtual environment is not activated. Run::
 
-Ensure your virtual environment is activated:
+    source .venv/bin/activate
 
-.. code-block:: bash
+**PyTorch installation issues**
 
-   source .venv/bin/activate
+If pip resolves a version that does not match your CUDA toolkit, install
+PyTorch separately with the index URL that matches your system::
 
-**2. PyTorch installation issues**
+    uv pip uninstall torch
+    uv pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-Install PyTorch separately:
+**Permission errors**
 
-.. code-block:: bash
+Do not use ``--user`` inside a virtual environment; that flag causes
+more problems than it solves. Instead, recreate the environment from
+scratch::
 
-   uv pip uninstall torch
-   uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+    rm -rf .venv
+    uv venv --python 3.10
+    source .venv/bin/activate
+    uv pip install -e .
 
-**3. Permission errors**
+**Python version issues**
 
-Use `--user` flag or ensure proper permissions:
+PhenoNN requires Python 3.10 or higher. If your ``python --version``
+returns something older, tell ``uv`` which interpreter to use::
 
-.. code-block:: bash
+    uv venv --python 3.10
 
-   uv pip install --user -e .
-
-**4. Python version issues**
-
-PhenoNN requires Python 3.8+. Check your version:
-
-.. code-block:: bash
-
-   python --version
-
-For more help, visit the GitHub repository: https://github.com/kardaneh/PhenoNN
+For anything else, open an issue on the GitHub repository:
+https://github.com/kardaneh/PhenoNN
