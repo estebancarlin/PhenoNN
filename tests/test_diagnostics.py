@@ -21,8 +21,6 @@ from phenonn.utils.diagnostics import (
     plot_pred_vs_obs,
     plot_gcc_curves,
     plot_gcc_curves_all,
-    plot_feature_distributions,
-    plot_feature_distributions_per_site,
 )
 
 
@@ -391,8 +389,10 @@ class TestDiagnostics(unittest.TestCase):
         self.assertIsInstance(result, dict)
         self.assertEqual(len(result), 3)  # Returns 3 sites
 
-        # Check that R² values are between 0 and 1
-        for site, r2 in result.items():
+        # Each value is (r2, mae, mse); check the R² bounds.
+        for site, metrics in result.items():
+            r2, mae, mse = metrics
+            self.assertIsInstance(r2, float)
             self.assertGreaterEqual(r2, 0)
             self.assertLessEqual(r2, 1)
 
@@ -443,44 +443,16 @@ class TestDiagnostics(unittest.TestCase):
         # Should return all 6 sites
         self.assertEqual(len(result), 6)
 
-        # Check R² values are between 0 and 1
-        for site, r2 in result.items():
+        # Each value is (r2, mae, mse); check the R² bounds.
+        for site, metrics in result.items():
+            r2, mae, mse = metrics
+            self.assertIsInstance(r2, float)
             self.assertGreaterEqual(r2, 0)
             self.assertLessEqual(r2, 1)
 
         # Check that sites are sorted by R² descending (best first)
-        r2_values = list(result.values())
+        r2_values = [m[0] for m in result.values()]
         self.assertGreaterEqual(r2_values[0], r2_values[-1])
-
-    def test_plot_feature_distributions(self):
-        """Test feature distributions plot generation."""
-        output_file = os.path.join(self.plots_dir, "test_feature_distributions.png")
-
-        plot_feature_distributions(
-            self.site_files,
-            filename=output_file,
-            logger=self.logger,
-            cols=4,
-            n_bins=50,
-            max_sites=20,
-        )
-
-        self.assertTrue(os.path.exists(output_file))
-
-    def test_plot_feature_distributions_per_site(self):
-        """Test feature distributions per site plot generation."""
-        output_dir = os.path.join(self.plots_dir, "feature_distributions_per_site")
-
-        plot_feature_distributions_per_site(
-            self.site_files[:5],  # Test with first 5 sites
-            output_dir=output_dir,
-            logger=self.logger,
-            cols=3,
-            n_bins=40,
-        )
-
-        # Check that directory was created
-        self.assertTrue(os.path.exists(output_dir))
 
 
 def run_tests():

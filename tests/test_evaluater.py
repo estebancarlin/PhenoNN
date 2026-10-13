@@ -1,312 +1,212 @@
 # Copyright 2026 IPSL / CNRS / Sorbonne University
-# Authors: Kazem Ardaneh
+# Authors: Stefan Barbu, Kazem Ardaneh
 #
 # This work is licensed under the Creative Commons
 # Attribution-NonCommercial-ShareAlike 4.0 International License.
 # To view a copy of this license, visit
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
 
-import unittest
-import torch
 import sys
-from unittest.mock import Mock
-import numpy as np
-
+import unittest
+from types import SimpleNamespace
+import torch
 from phenonn.utils.evaluater import (
-    NMSELoss,
-    NMAELoss,
-    MetricTracker,
-    get_loss_function,
-    mse_all,
-    mbe_all,
-    mae_all,
-    r2_all,
-    nmae_all,
-    nmse_all,
-    mare_all,
-    gmrae_all,
+    nan_safe_loss,
+    nan_safe_mse,
+    make_loss_fn,
 )
 
 
-class TestNMSELoss(unittest.TestCase):
-    """Unit tests for NMSELoss class."""
+def _args(**overrides):
+    """Namespace with sensible defaults for make_loss_fn."""
+    base = dict(
+        loss_type="mse",
+        huber_beta=1.0,
+        gradient_loss_weight=0.5,
+        peak_penalty_weight=0.0,
+        corr_loss_weight=0.0,
+        amp_loss_weight=0.0,
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+class TestBaseLossTypes(unittest.TestCase):
+    """Base loss types: mse, mae, huber/smoothl1, nmse, nmae, gradient."""
 
     def setUp(self):
-        """Set up test fixtures."""
-        self.criterion = NMSELoss(eps=1e-8)
+        torch.manual_seed(0)
+        self.pred = torch.randn(2, 1, 36)
+        self.target = torch.randn(2, 1, 36)
 
-    def test_forward(self):
-        """Test NMSELoss forward pass."""
-        pred = torch.tensor([2.0, 3.0, 4.0])
-        target = torch.tensor([2.0, 3.0, 4.0])
-        loss = self.criterion(pred, target)
+    def test_mse_zero_when_identical(self):
+        loss = nan_safe_loss(self.pred, self.pred.clone(), loss_type="mse")
         self.assertAlmostEqual(loss.item(), 0.0, places=6)
 
-    def test_non_zero_loss(self):
-        """Test NMSELoss with non-zero loss."""
-        pred = torch.tensor([2.0, 3.0, 4.0])
-        target = torch.tensor([1.0, 2.0, 3.0])
-        loss = self.criterion(pred, target)
+    def test_mse_positive_when_different(self):
+        loss = nan_safe_loss(self.pred, self.target, loss_type="mse")
         self.assertGreater(loss.item(), 0.0)
 
-    def test_normalization(self):
-        """Test that loss is normalized by target variance."""
-        pred = torch.tensor([2.0, 4.0, 6.0])
-        target = torch.tensor([1.0, 2.0, 3.0])
-        mse = torch.mean((pred - target) ** 2)
-        norm = torch.mean(target**2)
-        expected = mse / norm
-        loss = self.criterion(pred, target)
-        self.assertAlmostEqual(loss.item(), expected.item(), places=6)
-
-
-class TestNMAELoss(unittest.TestCase):
-    """Unit tests for NMAELoss class."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.criterion = NMAELoss(eps=1e-8)
-
-    def test_forward(self):
-        """Test NMAELoss forward pass."""
-        pred = torch.tensor([2.0, 3.0, 4.0])
-        target = torch.tensor([2.0, 3.0, 4.0])
-        loss = self.criterion(pred, target)
+    def test_mae_zero_when_identical(self):
+        loss = nan_safe_loss(self.pred, self.pred.clone(), loss_type="mae")
         self.assertAlmostEqual(loss.item(), 0.0, places=6)
 
-    def test_non_zero_loss(self):
-        """Test NMAELoss with non-zero loss."""
-        pred = torch.tensor([2.0, 3.0, 4.0])
-        target = torch.tensor([1.0, 2.0, 3.0])
-        loss = self.criterion(pred, target)
+    def test_huber_matches_smoothl1(self):
+        h = nan_safe_loss(self.pred, self.target, loss_type="huber", huber_beta=1.0)
+        s = nan_safe_loss(self.pred, self.target, loss_type="smoothl1", huber_beta=1.0)
+        self.assertAlmostEqual(h.item(), s.item(), places=6)
+
+    def test_huber_beta_changes_loss(self):
+        small = nan_safe_loss(self.pred, self.target, loss_type="huber", huber_beta=0.1)
+        large = nan_safe_loss(
+            self.pred, self.target, loss_type="huber", huber_beta=10.0
+        )
+        self.assertNotAlmostEqual(small.item(), large.item(), places=6)
+
+    def test_nmse_positive(self):
+        loss = nan_safe_loss(self.pred, self.target, loss_type="nmse")
+        self.assertGreater(loss.item(), 0.0)
+
+    def test_nmae_positive(self):
+        loss = nan_safe_loss(self.pred, self.target, loss_type="nmae")
+        self.assertGreater(loss.item(), 0.0)
+
+    def test_gradient_loss_positive(self):
+        loss = nan_safe_loss(
+            self.pred, self.target, loss_type="gradient", gradient_loss_weight=0.5
+        )
         self.assertGreater(loss.item(), 0.0)
 
 
-class TestMetricTracker(unittest.TestCase):
-    """Unit tests for MetricTracker class."""
+class TestNaNSafety(unittest.TestCase):
+    """NaN masking behaviour."""
+
+    def test_partial_nan_target_is_masked(self):
+        pred = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+        target = torch.tensor([[1.0, float("nan"), 3.0, float("nan")]])
+        loss = nan_safe_loss(pred, target, loss_type="mse")
+        # Two valid positions, both perfect → loss is 0.
+        self.assertAlmostEqual(loss.item(), 0.0, places=6)
+
+    def test_all_nan_target_gives_zero_gradient_scalar(self):
+        pred = torch.tensor([[1.0, 2.0, 3.0]], requires_grad=True)
+        target = torch.full_like(pred, float("nan"))
+        loss = nan_safe_loss(pred, target, loss_type="mse")
+        self.assertEqual(loss.item(), 0.0)
+        loss.backward()
+        self.assertTrue(pred.grad is None or torch.all(pred.grad == 0))
+
+    def test_nan_target_matches_dropped_positions(self):
+        """Loss with NaN positions must equal loss on the dropped subset."""
+        pred_full = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+        target_full = torch.tensor([[1.5, 2.0, 3.5, 4.0]])
+        target_nan = target_full.clone()
+        target_nan[0, 1] = float("nan")
+        target_nan[0, 3] = float("nan")
+
+        loss_full = nan_safe_loss(pred_full, target_full, loss_type="mse")
+        loss_nan = nan_safe_loss(pred_full, target_nan, loss_type="mse")
+
+        pred_red = torch.tensor([[1.0, 3.0]])
+        target_red = torch.tensor([[1.5, 3.5]])
+        loss_red = nan_safe_loss(pred_red, target_red, loss_type="mse")
+
+        self.assertAlmostEqual(loss_nan.item(), loss_red.item(), places=6)
+        self.assertNotAlmostEqual(loss_nan.item(), loss_full.item(), places=6)
+
+
+class TestOptionalPenalties(unittest.TestCase):
+    """peak, corr, and amp penalties."""
+
+    def test_peak_penalty_zero_when_peaks_align(self):
+        pred = torch.tensor([[1.0, 5.0, 2.0, 3.0]])
+        target = pred.clone()
+        loss = nan_safe_loss(pred, target, loss_type="mse", peak_penalty_weight=1.0)
+        self.assertAlmostEqual(loss.item(), 0.0, places=6)
+
+    def test_peak_penalty_positive_when_peaks_differ(self):
+        pred = torch.tensor([[1.0, 5.0, 2.0, 3.0]])
+        target = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+        base = nan_safe_loss(pred, target, loss_type="mse")
+        penal = nan_safe_loss(pred, target, loss_type="mse", peak_penalty_weight=1.0)
+        self.assertGreater(penal.item(), base.item())
+
+    def test_corr_term_penalises_flat_prediction(self):
+        target = torch.linspace(0.0, 1.0, 36).unsqueeze(0).unsqueeze(0)
+        flat_pred = torch.zeros_like(target)
+        loss = nan_safe_loss(flat_pred, target, loss_type="mse", corr_weight=1.0)
+        self.assertGreater(loss.item(), 0.5)
+
+    def test_corr_term_small_when_linear_match(self):
+        target = torch.linspace(0.0, 1.0, 36).unsqueeze(0).unsqueeze(0)
+        pred = target.clone()
+        loss = nan_safe_loss(pred, target, loss_type="mse", corr_weight=1.0)
+        self.assertAlmostEqual(loss.item(), 0.0, places=4)
+
+    def test_amp_term_penalises_wrong_amplitude(self):
+        target = torch.linspace(0.0, 1.0, 36).unsqueeze(0).unsqueeze(0)
+        flat_pred = torch.zeros_like(target)
+        loss = nan_safe_loss(flat_pred, target, loss_type="mse", amp_weight=1.0)
+        self.assertGreater(loss.item(), 0.0)
+
+    def test_amp_term_zero_when_amplitude_matches(self):
+        target = torch.linspace(0.0, 1.0, 36).unsqueeze(0).unsqueeze(0)
+        pred = target.clone()
+        loss = nan_safe_loss(pred, target, loss_type="mse", amp_weight=1.0)
+        self.assertAlmostEqual(loss.item(), 0.0, places=4)
+
+
+class TestErrorPath(unittest.TestCase):
+    """Input validation."""
+
+    def test_invalid_loss_type_raises(self):
+        pred = torch.zeros(1, 1, 36)
+        target = torch.zeros(1, 1, 36)
+        with self.assertRaises(ValueError):
+            nan_safe_loss(pred, target, loss_type="does_not_exist")
+
+
+class TestMakeLossFn(unittest.TestCase):
+    """The closure returned by make_loss_fn."""
 
     def setUp(self):
-        """Set up test fixtures."""
-        self.tracker = MetricTracker()
+        torch.manual_seed(0)
+        self.pred = torch.randn(2, 1, 36)
+        self.target = torch.randn(2, 1, 36)
 
-    def test_metric_tracker_init(self):
-        """Test MetricTracker initialization."""
+    def test_returns_callable(self):
+        fn = make_loss_fn(_args(loss_type="mse"))
+        self.assertTrue(callable(fn))
+        loss = fn(self.pred, self.target)
+        self.assertTrue(torch.is_tensor(loss))
+        self.assertEqual(loss.ndim, 0)
 
-        self.assertEqual(self.tracker.value, 0.0)
-        self.assertEqual(self.tracker.count, 0)
+    def test_missing_optional_penalties_default_to_zero(self):
+        """Optional weights default to 0 when absent from the namespace."""
+        args = SimpleNamespace(
+            loss_type="mse", huber_beta=1.0, gradient_loss_weight=0.5
+        )
+        fn = make_loss_fn(args)
+        loss = fn(self.pred, self.target)
+        self.assertTrue(torch.isfinite(loss))
 
-    def test_metric_tracker_reset(self):
-        """Test MetricTracker reset method."""
-
-        tracker = MetricTracker()
-        tracker.value = 10.5
-        tracker.count = 5
-        tracker.reset()
-        self.assertEqual(tracker.value, 0.0)
-        self.assertEqual(tracker.count, 0)
-
-    def test_metric_tracker_update(self):
-        """Test MetricTracker update method."""
-
-        tracker = MetricTracker()
-
-        # First update
-        tracker.update(10.0, 5)
-        self.assertEqual(tracker.value, 50.0)  # 10 * 5
-        self.assertEqual(tracker.count, 5)
-
-        # Second update
-        tracker.update(20.0, 3)
-        self.assertEqual(tracker.value, 110.0)  # 50 + 20*3
-        self.assertEqual(tracker.count, 8)  # 5 + 3
-
-        # Third update with zero count
-        tracker.update(30.0, 0)
-        self.assertEqual(tracker.value, 110.0)  # Unchanged
-        self.assertEqual(tracker.count, 8)  # Unchanged
-
-    def test_metric_tracker_getmean(self):
-        """Test MetricTracker getmean method."""
-
-        tracker = MetricTracker()
-
-        # Test with valid updates
-        tracker.update(10.0, 5)
-        tracker.update(20.0, 3)
-
-        mean = tracker.getmean()
-        expected_mean = 110.0 / 8  # (10*5 + 20*3) / (5+3) = 110/8 = 13.75
-        self.assertAlmostEqual(mean, expected_mean, places=6)
-
-        # Test with zero count (should raise ZeroDivisionError)
-        tracker.reset()
-        with self.assertRaises(ZeroDivisionError):
-            tracker.getmean()
-
-    def test_metric_tracker_getstd(self):
-        """Test MetricTracker getstd method."""
-
-        tracker = MetricTracker()
-
-        # Known values
-        # Values: [10 (×5), 20 (×3)]
-        # mean = 13.75
-        # E[x^2] = (10^2 * 5 + 20^2 * 3) / 8 = (500 + 1200) / 8 = 212.5
-        # variance = 212.5 - 13.75^2 = 23.4375
-        # std = sqrt(23.4375) ≈ 4.841229
-        tracker.update(10.0, 5)
-        tracker.update(20.0, 3)
-
-        std = tracker.getstd()
-        expected_std = np.sqrt(212.5 - 13.75**2)
-
-        self.assertAlmostEqual(std, expected_std, places=6)
-
-        # Test with zero count (should raise ZeroDivisionError)
-        tracker.reset()
-        with self.assertRaises(ZeroDivisionError):
-            tracker.getstd()
-
-    def test_metric_tracker_getsqrtmean(self):
-        """Test MetricTracker getsqrtmean method."""
-
-        tracker = MetricTracker()
-
-        tracker.update(16.0, 2)  # mean = 16, sqrt = 4
-        tracker.update(4.0, 2)  # mean = (16*2 + 4*2)/4 = 10, sqrt = sqrt(10)
-
-        sqrtmean = tracker.getsqrtmean()
-        expected_sqrtmean = np.sqrt(10.0)  # sqrt(10) ≈ 3.16227766
-        self.assertAlmostEqual(sqrtmean, expected_sqrtmean, places=6)
-
-        # Test with zero count (should raise ZeroDivisionError)
-        tracker.reset()
-        with self.assertRaises(ZeroDivisionError):
-            tracker.getsqrtmean()
+    def test_propagates_penalties(self):
+        fn = make_loss_fn(_args(loss_type="mse", peak_penalty_weight=1.0))
+        with_penalty = fn(self.pred, self.target).item()
+        base = nan_safe_loss(self.pred, self.target, loss_type="mse").item()
+        self.assertGreater(with_penalty, base)
 
 
-class TestGetLossFunction(unittest.TestCase):
-    """Unit tests for get_loss_function factory."""
+class TestNanSafeMSEAlias(unittest.TestCase):
+    """nan_safe_mse backward-compatibility alias."""
 
-    def test_mse_loss(self):
-        """Test MSE loss creation."""
-        args = Mock()
-        loss = get_loss_function("mse", args)
-        self.assertIsInstance(loss, torch.nn.MSELoss)
-
-    def test_mae_loss(self):
-        """Test MAE loss creation."""
-        args = Mock()
-        loss = get_loss_function("mae", args)
-        self.assertIsInstance(loss, torch.nn.L1Loss)
-
-    def test_nmae_loss(self):
-        """Test NMAE loss creation."""
-        args = Mock()
-        loss = get_loss_function("nmae", args)
-        self.assertIsInstance(loss, NMAELoss)
-
-    def test_nmse_loss(self):
-        """Test NMSE loss creation."""
-        args = Mock()
-        loss = get_loss_function("nmse", args)
-        self.assertIsInstance(loss, NMSELoss)
-
-    def test_huber_loss(self):
-        """Test Huber loss creation."""
-        args = Mock()
-        args.beta_delta = 1.0
-        loss = get_loss_function("huber", args)
-        self.assertIsInstance(loss, torch.nn.HuberLoss)
-
-    def test_smoothl1_loss(self):
-        """Test SmoothL1 loss creation."""
-        args = Mock()
-        args.beta_delta = 1.0
-        loss = get_loss_function("smoothl1", args)
-        self.assertIsInstance(loss, torch.nn.SmoothL1Loss)
-
-    def test_invalid_loss_type(self):
-        """Test invalid loss type raises error."""
-        args = Mock()
-        with self.assertRaises(ValueError):
-            get_loss_function("invalid_loss", args)
-
-    def test_huber_without_beta_delta(self):
-        """Test Huber loss without beta_delta raises error."""
-        args = Mock()
-        delattr(args, "beta_delta")
-        with self.assertRaises(ValueError):
-            get_loss_function("huber", args)
-
-
-class TestMetricFunctions(unittest.TestCase):
-    """Unit tests for metric functions."""
-
-    def setUp(self):
-        """Set up test fixtures."""
-        self.pred = torch.tensor([2.0, 3.0, 4.0])
-        self.true = torch.tensor([1.0, 2.0, 3.0])
-
-    def test_mse_all(self):
-        """Test MSE metric."""
-        count, value = mse_all(self.pred, self.true)
-        expected_mse = (1**2 + 1**2 + 1**2) / 3
-        self.assertEqual(count, 3)
-        self.assertAlmostEqual(value.item(), expected_mse, places=6)
-
-    def test_mbe_all(self):
-        """Test MBE metric."""
-        count, value = mbe_all(self.pred, self.true)
-        expected_mbe = (1 + 1 + 1) / 3
-        self.assertEqual(count, 3)
-        self.assertAlmostEqual(value.item(), expected_mbe, places=6)
-
-    def test_mae_all(self):
-        """Test MAE metric."""
-        count, value = mae_all(self.pred, self.true)
-        expected_mae = (1 + 1 + 1) / 3
-        self.assertEqual(count, 3)
-        self.assertAlmostEqual(value.item(), expected_mae, places=6)
-
-    def test_r2_all(self):
-        """Test R² metric."""
-        pred = torch.tensor([2.0, 3.0, 4.0])
-        true = torch.tensor([2.0, 3.0, 4.0])
-        count, value = r2_all(pred, true)
-        self.assertEqual(count, 3)
-        self.assertAlmostEqual(value.item(), 1.0, places=6)
-
-    def test_r2_all_perfect(self):
-        """Test R² metric with perfect predictions."""
-        pred = torch.tensor([1.0, 2.0, 3.0])
-        true = torch.tensor([1.0, 2.0, 3.0])
-        count, value = r2_all(pred, true)
-        self.assertAlmostEqual(value.item(), 1.0, places=6)
-
-    def test_nmae_all(self):
-        """Test NMAE metric."""
-        count, value = nmae_all(self.pred, self.true)
-        self.assertEqual(count, 3)
-        self.assertGreater(value.item(), 0)
-
-    def test_nmse_all(self):
-        """Test NMSE metric."""
-        count, value = nmse_all(self.pred, self.true)
-        self.assertEqual(count, 3)
-        self.assertGreater(value.item(), 0)
-
-    def test_mare_all(self):
-        """Test MARE metric."""
-        count, value = mare_all(self.pred, self.true)
-        self.assertEqual(count, 3)
-        self.assertGreater(value.item(), 0)
-
-    def test_gmrae_all(self):
-        """Test GMRAE metric."""
-        count, value = gmrae_all(self.pred, self.true)
-        self.assertEqual(count, 3)
-        self.assertGreater(value.item(), 0)
+    def test_alias_matches_mse(self):
+        torch.manual_seed(0)
+        pred = torch.randn(2, 1, 36)
+        target = torch.randn(2, 1, 36)
+        a = nan_safe_mse(pred, target).item()
+        b = nan_safe_loss(pred, target, loss_type="mse").item()
+        self.assertAlmostEqual(a, b, places=6)
 
 
 def run_tests():
@@ -314,11 +214,12 @@ def run_tests():
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
 
-    suite.addTests(loader.loadTestsFromTestCase(TestNMSELoss))
-    suite.addTests(loader.loadTestsFromTestCase(TestNMAELoss))
-    suite.addTests(loader.loadTestsFromTestCase(TestMetricTracker))
-    suite.addTests(loader.loadTestsFromTestCase(TestGetLossFunction))
-    suite.addTests(loader.loadTestsFromTestCase(TestMetricFunctions))
+    suite.addTests(loader.loadTestsFromTestCase(TestBaseLossTypes))
+    suite.addTests(loader.loadTestsFromTestCase(TestNaNSafety))
+    suite.addTests(loader.loadTestsFromTestCase(TestOptionalPenalties))
+    suite.addTests(loader.loadTestsFromTestCase(TestErrorPath))
+    suite.addTests(loader.loadTestsFromTestCase(TestMakeLossFn))
+    suite.addTests(loader.loadTestsFromTestCase(TestNanSafeMSEAlias))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
