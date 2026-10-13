@@ -11,6 +11,9 @@
 from .rnn import RNN_LSTM, RNN_GRU
 from .fcn import FCN
 from .transformer import EncoderTorch
+
+from .attn_lstm import AttnLSTM
+from .aelstm import AELSTM
 from .transformerbis import (
     CombinedModel,
     BiTransformer,
@@ -23,6 +26,8 @@ from .linear_baseline import (
 __all__ = [
     "RNN_LSTM",
     "RNN_GRU",
+    "AttnLSTM",
+    "AELSTM",
     "FCN",
     "EncoderTorch",
     "CombinedModel",
