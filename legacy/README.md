@@ -10,7 +10,12 @@ Contents
 - `prediction/`: `predict_flat.py`
 - `models/` (Week 1 move): `attn_lstm.py`, `dimchangemodule.py`, `fcn.py`,
   `linear_baseline.py`, `transformerbis.py`
-- `utils/` (Week 1 move): `model_utils.py`
+- `tests_archive/`: `fcn_test.py`, `transformerbis_test.py` — archived
+  2026-10-13 (kept-surface CI no longer runs them). Run manually from the
+  repo root, e.g. `python -m unittest legacy.tests_archive.fcn_test -v`.
 
-Import legacy code as `legacy.models.<name>` / `legacy.utils.<name>`
+`model_utils.py` now lives only at `phenonn/utils/model_utils.py`
+(kept); the identical `legacy/utils/` copy was removed 2026-10-13.
+
+Import legacy code as `legacy.models.<name>`
 (no `pip` packaging; repo-root namespace packages only).

@@ -11,7 +11,7 @@ import torch
 import sys
 import os
 from phenonn.models.transformer import EncoderTorch
-from legacy.utils.model_utils import ModelUtils
+from phenonn.utils.model_utils import ModelUtils
 
 
 class TestEncoderTorch(unittest.TestCase):

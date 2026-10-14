@@ -63,6 +63,15 @@ Source = "https://github.com/kardaneh/PhenoNN"
 [tool.pytest.ini_options]
 markers = ["long: marks tests as long (deselect with '-m \"not long\"')"]
 
+[tool.coverage.run]
+source = ["phenonn"]
+omit = ["phenonn/analysis/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+fail_under = 50
+show_missing = true
+skip_covered = false
+
 [tool.uv.workspace]
 members = ["tem"]
 

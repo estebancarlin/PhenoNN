@@ -11,7 +11,7 @@ import torch
 import sys
 import os
 from phenonn.models.rnn import BaseRNN, RNN_LSTM, RNN_GRU
-from legacy.utils.model_utils import ModelUtils
+from phenonn.utils.model_utils import ModelUtils
 
 
 class TestBaseRNN(unittest.TestCase):

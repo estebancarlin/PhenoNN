@@ -39,11 +39,17 @@ jobs:
           source .venv/bin/activate
           python -m tests.test_phenonn_installation
           python -m unittest tests.test_transformer
+          python -m unittest tests.test_transformer_extra
           python -m unittest tests.test_rnn
-          python -m unittest tests.test_fcn
+          python -m unittest tests.test_aelstm
+          python -m unittest tests.test_bitransformer
           python -m unittest tests.test_utils
           python -m unittest tests.test_model_utils
-          python -m unittest tests.test_transformerbis
+          python -m unittest tests.test_wrappers
+          python -m unittest tests.test_lai_dataset
+          python -m unittest tests.test_model_loader
+          python -m unittest tests.test_cli
+          python -m unittest tests.test_logger
           python -m unittest tests.test_evaluater
           python -m unittest tests.test_diagnostics
 

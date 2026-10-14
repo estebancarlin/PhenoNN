@@ -35,7 +35,10 @@ STATS_PATH="$DATA/norm_stats_1992_2019.json"
 CO2_PATH="$DATA/CO2_1700_2023_TRENDYv2024.txt"
 
 # ── Output location ─────────────────────────────────────────────────────────
-OUT_DIR="$REPO/runs/smoke"
+# runs/ is a symlink to SSD storage (/net/nfs/ssd2/ecarlin/runs on the
+# cluster); override with RUNS_DIR only if bypassing the link.
+RUNS_DIR="${RUNS_DIR:-$REPO/runs}"
+OUT_DIR="$RUNS_DIR/smoke"
 EXP_NAME="smoke_lstm"
 
 # ── Sanity: confirm each input exists ───────────────────────────────────────

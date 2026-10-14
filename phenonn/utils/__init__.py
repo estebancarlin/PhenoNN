@@ -30,6 +30,8 @@ Logger
     Logger
 General helpers
     FileUtils, EasyDict
+Checkpoints / introspection
+    ModelUtils
 """
 
 import importlib
@@ -72,6 +74,7 @@ __all__ = [
     "Logger",
     "FileUtils",
     "EasyDict",
+    "ModelUtils",
 ]
 
 _CONFIG = {
@@ -115,6 +118,7 @@ _LAZY = {
     "Logger": (".logger", "Logger"),
     "FileUtils": (".utils", "FileUtils"),
     "EasyDict": (".utils", "EasyDict"),
+    "ModelUtils": (".model_utils", "ModelUtils"),
 }
 
 

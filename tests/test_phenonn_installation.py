@@ -90,6 +90,7 @@ PHENONN_MODULES = [
     "phenonn.utils.diagnostics",
     "phenonn.utils.logger",
     "phenonn.utils.utils",
+    "phenonn.utils.model_utils",
 ]
 
 PHENONN_PUBLIC_NAMES = [

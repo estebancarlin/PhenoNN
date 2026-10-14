@@ -1,8 +1,9 @@
-cat > doc/source/api/modules.rst << 'EOF'
 API Reference
 =============
 
-This page provides the complete API reference for PhenoNN.
+This page provides the complete API reference for the kept PhenoNN
+package surface. Legacy modules under ``legacy/`` are intentionally
+excluded (deleted January 2027).
 
 Main Package
 ------------
@@ -20,22 +21,11 @@ Data Module
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.data.dataset
+.. automodule:: phenonn.data.lai_dataset
    :members:
    :undoc-members:
    :show-inheritance:
    :special-members: __getitem__, __len__
-
-.. automodule:: phenonn.data.dataset_flat
-   :members:
-   :undoc-members:
-   :show-inheritance:
-   :special-members: __getitem__, __len__
-
-.. automodule:: phenonn.data.feature_engineering
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 Models Module
 -------------
@@ -50,17 +40,17 @@ Models Module
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.models.transformer
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 .. automodule:: phenonn.models.aelstm
    :members:
    :undoc-members:
    :show-inheritance:
 
 .. automodule:: phenonn.models.bitransformer
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: phenonn.models.transformer
    :members:
    :undoc-members:
    :show-inheritance:
@@ -73,12 +63,7 @@ Training Module
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.training.train
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: phenonn.training.train_flat
+.. automodule:: phenonn.training.train_full_ram
    :members:
    :undoc-members:
    :show-inheritance:
@@ -96,11 +81,6 @@ Prediction Module
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.prediction.predict_flat
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Utils Module
 ------------
 
@@ -109,17 +89,12 @@ Utils Module
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.utils.logger
+.. automodule:: phenonn.utils.config
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.utils.diagnostics
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-.. automodule:: phenonn.utils.evaluater
+.. automodule:: phenonn.utils.wrappers
    :members:
    :undoc-members:
    :show-inheritance:
@@ -129,7 +104,22 @@ Utils Module
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: phenonn.utils.wrappers
+.. automodule:: phenonn.utils.evaluater
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: phenonn.utils.diagnostics
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: phenonn.utils.logger
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. automodule:: phenonn.utils.utils
    :members:
    :undoc-members:
    :show-inheritance:
@@ -149,4 +139,3 @@ Version Module
    :members:
    :undoc-members:
    :show-inheritance:
-EOF
