@@ -29,12 +29,12 @@ The legacy flat-CSV predictor (``predict_flat``) has been moved to
 
 from .predict import (
     main,
-    parse_year_spec,
+    _parse_year_spec,
     _resolve_sites,
 )
 
 __all__ = [
     "main",
-    "parse_year_spec",
+    "_parse_year_spec",
     "_resolve_sites",
 ]

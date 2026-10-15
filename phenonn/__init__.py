@@ -30,7 +30,6 @@ __license__ = "CC BY-NC-SA 4.0"
 # Core exports
 # Data exports (kept surface only)
 from .data import (
-    LAIDataset,
     RamLAIDataset,
 )
 

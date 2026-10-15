@@ -31,7 +31,6 @@ Daily-LAI constants
 """
 
 from .lai_dataset import (
-    LAIDataset,
     RamLAIDataset,
     compute_climatology_lookup,
     list_valid_sites,
@@ -47,7 +46,6 @@ from .lai_dataset import (
 
 __all__ = [
     # Datasets
-    "LAIDataset",
     "RamLAIDataset",
     # Climatology / pools
     "compute_climatology_lookup",
