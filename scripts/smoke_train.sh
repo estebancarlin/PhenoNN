@@ -5,8 +5,8 @@
 # Purpose
 # -------
 # Verify that the kept surface (dataset, model, trainer, wrapper,
-# checkpoint writer) still works after the cleanup. Runs on CPU, one
-# epoch, a few sites, a couple of years. Finishes in a few minutes.
+# checkpoint writer) still works after the cleanup. Runs on CPU, two
+# epochs, a few sites, a couple of years. Finishes in a few minutes.
 #
 # Not a replacement for the real training jobs: those are the SLURM
 # scripts under jobs/ and phenonn/analysis/*/jobs/.
@@ -15,8 +15,11 @@
 # -----
 #   bash scripts/smoke_train.sh
 #
-# All paths point to the dataset folder you have on the cluster
-# (…/PhenoNN/../pixelset1/). Edit them below if your layout changes.
+#   # override the data directory
+#   DATA=/path/to/pixelset1 bash scripts/smoke_train.sh
+#
+# All default paths point to ../pixelset1 next to the repo. Edit below
+# if your layout changes.
 
 set -euo pipefail
 
@@ -48,15 +51,18 @@ for p in "$FEATURES_DIR" "$TARGET_DIR" "$PFT_DIR" \
 done
 
 # ── The run ─────────────────────────────────────────────────────────────────
-# --subset 0.001     : ~1/1000th of the pool → ~5–10 sites
-# --n_sites_per_epoch: cap per-epoch sample to 8
-# --n_years_per_epoch: 2 years
-# --num_epochs 2     : two epochs is enough to prove convergence reaches
-# --batch_size 4     : small batch keeps it CPU-friendly
-# --amp  is off      : no GPU
+# --subset 0.001       : ~1/1000th of the pool  →  ~5–10 sites
+# --n_sites_per_epoch  : cap per-epoch sample to 8
+# --n_years_per_epoch  : 2 years
+# --num_epochs 2       : two epochs is enough to prove the loop reaches
+# --batch_size 4       : small batch keeps it CPU-friendly
+# --num_workers 0      : avoid fork overhead on a tiny run
+# --amp                : OFF (no GPU)
+# --prefix ""          : short checkpoint names (best_model.pth.tar, …)
+# --save_checkpoint_name model
 cd "$REPO"
 
-phenonn train \
+python -m phenonn.training.train_full_ram \
     --features_dir      "$FEATURES_DIR" \
     --target_dir        "$TARGET_DIR" \
     --pft_dir           "$PFT_DIR" \
@@ -77,10 +83,12 @@ phenonn train \
     --pft_mixing \
     --pft_meteo_only \
     --loss_type         huber \
-    --num_epochs        2 \
+    --num_epochs        10 \
     --batch_size        4 \
     --num_workers       0 \
     --max_grad_norm     1.0 \
+    --prefix            "" \
+    --save_checkpoint_name "model" \
     --output_dir        "$OUT_DIR" \
     --experiment        "$EXP_NAME"
 
