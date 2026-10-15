@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# Copyright 2026 IPSL / CNRS / Sorbonne University
+# Authors: Stefan Barbu, Kazem Ardaneh
+#
+# This work is licensed under the Creative Commons
+# Attribution-NonCommercial-ShareAlike 4.0 International License.
+# To view a copy of this license, visit
+# http://creativecommons.org/licenses/by-nc-sa/4.0/
+
 """
 PhenoNN — RAM-resident training entry point (method C2, "working-set").
 
@@ -8,23 +16,53 @@ features (+ targets / PFT / climatology) for every site the training loop will
 sub-selects sample indices already in memory — zero per-epoch I/O.
 
 Why "working-set" and not the whole pool
------------------------------------------
-The per-epoch sampler only ever touches `n_sites_per_epoch` sites per epoch,
-drawn with `RandomState(seed + epoch)`. Over the whole run the set of *distinct*
-sites used is therefore `union over epochs of those draws`
-≈ `min(pool, n_sites_per_epoch × n_epochs)`. We replay that exact RNG sequence
-here to compute the union, and load only those sites. RAM ≈ N_working × n_years
-× 365 × n_dyn × 4 bytes (raw, not the ~6× bigger assembled tensor — assembly is
-done on the fly in __getitem__).
+----------------------------------------
+The per-epoch sampler only ever touches ``n_sites_per_epoch`` sites per epoch,
+drawn with ``RandomState(seed + epoch)``. Over the whole run the set of
+*distinct* sites used is therefore the union of those draws over all epochs,
+which we compute exactly by replaying the sampler's RNG here. Only those
+sites are loaded.
 
-This module is self-contained: the CLI, the site-pool builder and the
-train/validate loops are all defined below (no shared training module).
+Module overview
+---------------
+The training pipeline is organised as a chain of small functions, each
+responsible for one phase of the run:
 
-Usage, e.g.
-    python -m phenonn.training.train_full_ram \\
-        --features_dir /data/sbarbu/era5_features --target_dir ... \\
-        --selected_pixels /data/sbarbu/PhenoNN/data/selected_pixels_big.nc \\
-        --train_years 1992-2010 --val_years 2011-2018 \\
+1.  ``parse_args``                       — CLI
+2.  ``setup_directories_and_logging``    — mkdir + Logger, returns an EasyDict
+3.  ``log_configuration``                — dump args
+4.  ``setup_device_and_seed``            — torch.device + seeds
+5.  ``load_norm_stats``                  — optional JSON
+6.  ``load_co2_lut_if_requested``        — optional CO2 LUT
+7.  ``load_parent_map_if_requested``     — optional 0.05°→0.1° map
+8.  ``build_site_pools``                 — train / val site pools
+9.  ``compute_working_set``              — sites ever sampled
+10. ``compute_anomaly_climatology``      — optional per-site climatology
+11. ``create_datasets_and_loaders``      — RAM datasets + DataLoaders
+12. ``initialize_model``                 — build_model / build_model_pft
+13. ``create_optimizer_and_scheduler``   — Adam + ReduceLROnPlateau
+14. ``create_loss_function``             — nan_safe_loss closure
+15. ``load_checkpoint_if_requested``     — resume via ModelUtils
+16. ``run_training``                     — the loop
+17. ``generate_summary_plots``           — loss / metric figures
+
+Checkpoint writing delegates to :class:`phenonn.utils.model_utils.ModelUtils`,
+so the on-disk format is shared with the rest of the project.
+
+The same primitives are reused by :func:`load_shared` and
+:func:`train_one_config`, which the in-process sweep drivers call to pay
+the disk-load cost only once per process.
+
+Usage
+-----
+::
+
+    python -m phenonn.training.train_full_ram \
+        --features_dir /data/.../era5_pixelset \
+        --target_dir   /data/.../LAI_pixelset \
+        --pft_dir      /data/.../PFT_pixelset \
+        --selected_pixels /data/.../selected_pixels.nc \
+        --train_years 1992-2010 --val_years 2011-2018 \
         --num_epochs 30 --n_sites_per_epoch 1000 --n_years_per_epoch 5 ...
 """
 
@@ -52,24 +90,29 @@ from phenonn.data.lai_dataset import (
 )
 from phenonn.utils.evaluater import make_loss_fn
 from phenonn.utils.model_loader import build_model, build_model_pft
-
-
+from phenonn.utils.model_utils import ModelUtils
 from phenonn.utils.diagnostics import (
     make_history_dicts,
     plot_loss_histories,
     plot_metric_histories,
 )
 from phenonn.utils.logger import Logger
-from phenonn.utils.utils import FileUtils
+from phenonn.utils.utils import EasyDict, FileUtils
+
+
+# ── Shared container ────────────────────────────────────────────────────────
 
 
 @dataclass
 class SharedData:
-    """Everything a training run reuses across hyperparameter configs, loaded
-    from disk into RAM ONCE by load_shared(): the site pools, normalisation
-    tables, and the resident validation / training datasets. Identical for every
-    config whose subset / seed / years / n_sites_per_epoch / num_epochs match,
-    so run_sweep_inproc.py builds it once and hands it to each train_one_config."""
+    """
+    Everything a training run reuses across hyperparameter configs.
+
+    Loaded from disk into RAM once by :func:`load_shared`: the site pools,
+    normalisation tables, and the resident validation and training datasets.
+    Identical for every config whose ``subset`` / ``seed`` / years /
+    ``n_sites_per_epoch`` / ``num_epochs`` match.
+    """
 
     device: object
     train_pool: list
@@ -84,7 +127,24 @@ class SharedData:
     train_full: object
 
 
-def parse_year_list(s: str):
+# ── Small helpers ───────────────────────────────────────────────────────────
+
+
+def parse_year_list(s: str) -> list:
+    """
+    Parse a year specification into a list of ints.
+
+    Parameters
+    ----------
+    s : str
+        Either ``"1992-2010"`` (range), ``"1992,2000,2005"`` (list), or an
+        empty string.
+
+    Returns
+    -------
+    list of int
+        The parsed years, or an empty list for an empty input.
+    """
     if not s:
         return []
     if "-" in s and "," not in s:
@@ -93,7 +153,18 @@ def parse_year_list(s: str):
     return [int(x) for x in s.split(",")]
 
 
-def _cli_explicit_args():
+def _cli_explicit_args() -> set:
+    """
+    Names of the arguments the user actually wrote on the command line.
+
+    Used when resuming, to let CLI overrides win over the checkpoint's
+    stored arguments.
+
+    Returns
+    -------
+    set of str
+        Argument names, with ``-`` replaced by ``_``.
+    """
     explicit = set()
     for arg in sys.argv[1:]:
         if arg.startswith("--"):
@@ -101,98 +172,57 @@ def _cli_explicit_args():
     return explicit
 
 
+# ── CLI ─────────────────────────────────────────────────────────────────────
+
+
 def parse_args(argv=None):
+    """
+    Parse the command-line arguments.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Argument vector. Defaults to ``sys.argv[1:]``.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments.
+    """
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     # ── Data ──
-    p.add_argument("--features_dir", required=False, default="")
-    p.add_argument("--target_dir", required=False, default="")
-    p.add_argument("--pft_dir", required=False, default="")
-    p.add_argument(
-        "--valid_dir",
-        required=False,
-        default="",
-        help="Folder of valid_pixels_{Y}.nc (output of "
-        "compute_valid_pixels.py). Used to draw the site "
-        "pool when --selected_pixels is not provided.",
-    )
-    p.add_argument(
-        "--selected_pixels",
-        required=False,
-        default="",
-        help="Path to selected_pixels.nc produced by "
-        "select_pixels.py. When set, the site pool is taken "
-        "from this file (and --valid_dir is ignored).",
-    )
-    p.add_argument(
-        "--parent_map",
-        required=False,
-        default="",
-        help="Optional selected_pixels_01.nc (phenonn.data_creation."
-        "make_selected_pixels_01). When set, ERA5 features are "
-        "read from the deduplicated 0.1° ERA5_daily_pixelset "
-        "(site_id 'E{lat}_{lon}') via the 0.05°→0.1° parent map, "
-        "instead of a 0.05°-indexed feature file. Targets/PFT "
-        "stay on the 0.05° sites. RAM-dataset path only.",
-    )
-    p.add_argument(
-        "--stats_path",
-        default="",
-        help="Optional norm_stats.json for log1p + z-scoring.",
-    )
-    p.add_argument(
-        "--co2_path", default="", help="Optional CO2 LUT (Annee_YYYY=VALUE per line)."
-    )
+    p.add_argument("--features_dir", default="")
+    p.add_argument("--target_dir", default="")
+    p.add_argument("--pft_dir", default="")
+    p.add_argument("--valid_dir", default="")
+    p.add_argument("--selected_pixels", default="")
+    p.add_argument("--parent_map", default="")
+    p.add_argument("--stats_path", default="")
+    p.add_argument("--co2_path", default="")
     p.add_argument(
         "--no_normalize_lai",
         dest="normalize_lai",
         action="store_false",
         default=True,
-        help="Skip LAI z-scoring (features still normalized).",
     )
-    p.add_argument(
-        "--daily_lai",
-        action="store_true",
-        default=False,
-        help="Daily-LAI mode: the model outputs 365 days "
-        "(DailyWrapper, no every-10-days subselect) and trains on "
-        "the linear-interpolated daily curve (--daily_target_dir), "
-        "so the loss covers ALL days. Validation still scores ONLY "
-        "the real dekad observations (from --target_dir). "
-        "Incompatible with --anomaly_mode.",
-    )
-    p.add_argument(
-        "--daily_target_dir",
-        default="",
-        help="Folder of LAI_daily_{Y}.nc (365-day interpolated LAI, "
-        "from interpolate_lai_daily_linear.py). Required with "
-        "--daily_lai; used for the training target only.",
-    )
+    p.add_argument("--daily_lai", action="store_true", default=False)
+    p.add_argument("--daily_target_dir", default="")
     p.add_argument(
         "--threaded_feature_read",
         action="store_true",
         default=False,
-        help="EXPERIMENTAL (RAM dataset only): read the per-year "
-        "feature files concurrently (ThreadPoolExecutor). Faster "
-        "on high-latency NFS, but UNSAFE on venvs whose "
-        "netCDF4/h5py bundle a non-thread-safe libhdf5 "
-        "(concurrent opens segfault). Default: sequential.",
     )
 
-    # ── Sub-grid (used to bound the valid pool) ──
+    # ── Sub-grid ──
     p.add_argument("--row_min", type=int, default=0)
-    p.add_argument(
-        "--row_max",
-        type=int,
-        default=-1,
-        help="Inclusive end of lat-index range. -1 = whole grid.",
-    )
+    p.add_argument("--row_max", type=int, default=-1)
     p.add_argument("--col_min", type=int, default=0)
     p.add_argument("--col_max", type=int, default=-1)
 
-    # ── Year ranges ──
+    # ── Years ──
     p.add_argument("--train_years", default="")
     p.add_argument("--val_years", default="")
 
@@ -200,41 +230,18 @@ def parse_args(argv=None):
     p.add_argument("--n_sites_per_epoch", type=int, default=500)
     p.add_argument("--n_years_per_epoch", type=int, default=3)
     p.add_argument("--n_val_sites", type=int, default=200)
-    p.add_argument(
-        "--val_fraction_of_grid",
-        type=float,
-        default=0.1,
-        help="Sentinel 100 → OVERLAP mode (train ∪ val drawn from "
-        "the same pool, years must be disjoint).",
-    )
-    p.add_argument(
-        "--subset",
-        type=float,
-        default=1.0,
-        help="Keep only this FRACTION (0, 1] of the site pool "
-        "(applied to train AND val), sampled once with --seed "
-        "BEFORE the train/val split. Caps the sites ever loaded "
-        "into RAM at fraction×pool, independent of --num_epochs "
-        "(the per-epoch --n_sites_per_epoch sampling then draws "
-        "from this reduced pool). 1.0 = full pool.",
-    )
+    p.add_argument("--val_fraction_of_grid", type=float, default=0.1)
+    p.add_argument("--subset", type=float, default=1.0)
 
     # ── Anomaly mode ──
     p.add_argument("--anomaly_mode", action="store_true")
     p.add_argument("--clim_years", default="1992-2010")
-    p.add_argument(
-        "--clim_target_dir",
-        default="",
-        help="Folder of LAI_dekadal_{Y}.nc for the climatology "
-        "source (defaults to --target_dir).",
-    )
+    p.add_argument("--clim_target_dir", default="")
 
     # ── Model ──
-    # The trailing "# models:" note on each option lists which of the models you
-    # train read it (all = lstm, aelstm, bitransformer_v2, attnlstm).
     p.add_argument(
         "--type",
-        default="lstm",  # models: all
+        default="lstm",
         choices=[
             "lstm",
             "gru",
@@ -249,84 +256,25 @@ def parse_args(argv=None):
             "linear_perday",
         ],
     )
-    p.add_argument("--pft_mixing", action="store_true")  # models: all (wrapper)
-    p.add_argument(
-        "--pft_meteo_only",
-        action="store_true",  # models: all (with --pft_mixing)
-        help="With --pft_mixing: the base model sees ONLY the "
-        "meteo/cyclic/co2 channels (not the PFT fractions), so "
-        "each of its 15 pure-LAI outputs L_k depends on climate "
-        "alone; the PFT fractions enter only as mixing weights "
-        "in PFTMixingWrapper. Changes the input channel count "
-        "→ not resumable from a non-meteo_only checkpoint.",
-    )
-    p.add_argument(
-        "--pft_nonneg",
-        action="store_true",  # models: all (with --pft_mixing)
-        help="With --pft_mixing: soft-floor each per-PFT pure LAI at "
-        "physical 0 (softplus anchored at the z-scored zero), so "
-        "no L_k can be negative. Keeps the additive mixing "
-        "consistent. Changes the model → requires retraining.",
-    )
-    p.add_argument(
-        "--seq_length", type=int, default=730
-    )  # models: all (input window via dataset; PE/mask inside aelstm/bitransformer_v2/attnlstm, not lstm)
-    p.add_argument(
-        "--hidden_size", type=int, default=128
-    )  # models: all (lstm/aelstm hidden; bitransformer_v2 stage-2; attnlstm LSTM)
-    p.add_argument(
-        "--d_model",
-        type=int,
-        default=None,  # models: bitransformer_v2, attnlstm (stage-1 transformer)
-        help="Transformer embedding dim for bitransformer_v2 / "
-        "attnlstm stage-1. Falls back to --hidden_size when "
-        "unset. For attnlstm, --hidden_size stays the LSTM "
-        "hidden size (decoupled from d_model).",
-    )
-    p.add_argument(
-        "--num_layers", type=int, default=2
-    )  # models: all (bitransformer_v2 stage-2 blocks; attnlstm LSTM layers)
-    p.add_argument(
-        "--num_layers1", type=int, default=2
-    )  # models: bitransformer_v2, attnlstm (stage-1 transformer blocks)
-
-    p.add_argument(
-        "--nhead", type=int, default=4
-    )  # models: aelstm, bitransformer_v2, attnlstm
-    p.add_argument("--forward_expansion", type=int, default=4)  # models: aelstm
-    p.add_argument(
-        "--dropout2", type=float, default=0.0
-    )  # models: aelstm, bitransformer_v2 (stage-2 transformer), attnlstm (LSTM inter-layer, needs num_layers≥2)
-    p.add_argument(
-        "--dropout1", type=float, default=0.0
-    )  # models: bitransformer_v2, attnlstm (stage-1 transformer)
-    p.add_argument("--dropout_att", type=float, default=0.0)  # models: aelstm
-
-    p.add_argument(
-        "--feed_forward_trans1",
-        type=int,
-        default=4,  # models: bitransformer_v2 stage-1, attnlstm stage-1
-        help="Stage-1 transformer FFN multiplier "
-        "(bitransformer_v2 / attnlstm / bitransformer).",
-    )
-    p.add_argument(
-        "--feed_forward_trans2",
-        type=int,
-        default=4,  # models: bitransformer_v2 stage-2
-        help="Stage-2 transformer FFN multiplier "
-        "(bitransformer_v2 / bitransformer).",
-    )
-    p.add_argument("--n_attn_blocks", type=int, default=2)  # models: aelstm
-    p.add_argument(
-        "--stress_dim", type=int, default=8
-    )  # models: bitransformer_v2, attnlstm
-
-    p.add_argument(
-        "--d_layers", type=int, default=2
-    )  # models: none of lstm/aelstm/bitransformer_v2/attnlstm
-    p.add_argument(
-        "--embed_size", type=int, default=64
-    )  # models: none of lstm/aelstm/bitransformer_v2/attnlstm
+    p.add_argument("--pft_mixing", action="store_true")
+    p.add_argument("--pft_meteo_only", action="store_true")
+    p.add_argument("--pft_nonneg", action="store_true")
+    p.add_argument("--seq_length", type=int, default=730)
+    p.add_argument("--hidden_size", type=int, default=128)
+    p.add_argument("--d_model", type=int, default=None)
+    p.add_argument("--num_layers", type=int, default=2)
+    p.add_argument("--num_layers1", type=int, default=2)
+    p.add_argument("--nhead", type=int, default=4)
+    p.add_argument("--forward_expansion", type=int, default=4)
+    p.add_argument("--dropout2", type=float, default=0.0)
+    p.add_argument("--dropout1", type=float, default=0.0)
+    p.add_argument("--dropout_att", type=float, default=0.0)
+    p.add_argument("--feed_forward_trans1", type=int, default=4)
+    p.add_argument("--feed_forward_trans2", type=int, default=4)
+    p.add_argument("--n_attn_blocks", type=int, default=2)
+    p.add_argument("--stress_dim", type=int, default=8)
+    p.add_argument("--d_layers", type=int, default=2)
+    p.add_argument("--embed_size", type=int, default=64)
 
     # ── Training ──
     p.add_argument("--batch_size", type=int, default=32)
@@ -341,152 +289,280 @@ def parse_args(argv=None):
     p.add_argument("--huber_beta", type=float, default=1.0)
     p.add_argument("--gradient_loss_weight", type=float, default=0.5)
     p.add_argument("--peak_penalty_weight", type=float, default=0.0)
-    p.add_argument(
-        "--corr_loss_weight",
-        type=float,
-        default=0.0,
-        help="Weight λ for the (1 − masked Pearson) shape/phase term "
-        "(0 = off). Scale-invariant, anti-damping.",
-    )
-    p.add_argument(
-        "--amp_loss_weight",
-        type=float,
-        default=0.0,
-        help="Weight λ for the |std(pred) − std(target)| amplitude " "term (0 = off).",
-    )
+    p.add_argument("--corr_loss_weight", type=float, default=0.0)
+    p.add_argument("--amp_loss_weight", type=float, default=0.0)
     p.add_argument("--max_grad_norm", type=float, default=1.0)
     p.add_argument("--patience", type=int, default=11)
     p.add_argument("--num_workers", type=int, default=4)
-    p.add_argument(
-        "--amp",
-        action="store_true",
-        help="bf16 autocast (mixed precision): faster + less GPU "
-        "memory on modern GPUs.",
-    )
-    p.add_argument(
-        "--compile",
-        action="store_true",
-        help="Wrap the model in torch.compile (kernel fusion).",
-    )
+    p.add_argument("--amp", action="store_true")
+    p.add_argument("--compile", action="store_true")
     p.add_argument(
         "--no_fused_adam",
         dest="fused_adam",
         action="store_false",
         default=True,
-        help="Disable the fused CUDA Adam kernel (on by default on GPU).",
     )
 
     # ── Output / resume ──
     p.add_argument("--output_dir", default="runs_final")
     p.add_argument("--experiment", default="exp_big")
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--prefix", default="run", help="Prefix for checkpoint filenames.")
     p.add_argument(
-        "--resume", default="", help="Path to last_model.pth from a previous run."
+        "--save_checkpoint_name",
+        default="model",
+        help="Base name for checkpoint files.",
     )
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--resume", default="")
 
     return p.parse_args(argv)
 
 
-# ── Train / validate loops (NaN-safe, same logic as main_big) ───────────────
+# ── Phase 2 — directories and logger ────────────────────────────────────────
 
 
-def train_one_epoch(
-    model,
-    loader,
-    criterion,
-    optimizer,
-    device,
-    max_grad_norm,
-    use_amp=False,
-    logger=None,
-    epoch=None,
-):
-    model.train()
-    # Accumulate on-GPU to avoid a per-batch .item() sync; one sync at epoch end.
-    total_weighted = torch.zeros((), device=device)
-    total_valid = torch.zeros((), device=device)
-    n_batches = len(loader)
-    log_every = max(1, n_batches // 10)
-    t_ep = time.time()
-    for b, (features, targets) in enumerate(loader, 1):
-        features = features.to(device, non_blocking=True)
-        targets = targets.to(device, non_blocking=True)
-        optimizer.zero_grad(set_to_none=True)
-        with torch.autocast(
-            device_type=device.type, dtype=torch.bfloat16, enabled=use_amp
-        ):
-            preds = model(features)
-            loss = criterion(preds, targets)
-        if loss.requires_grad and torch.isfinite(loss).item():  # NaN guard (1 sync)
-            loss.backward()
-            if max_grad_norm > 0:
-                nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-            optimizer.step()
-        n_valid = torch.isfinite(targets).sum()
-        total_weighted += loss.detach().float() * n_valid.float()
-        total_valid += n_valid
-        if logger is not None and (b % log_every == 0 or b == n_batches):
-            logger.info(
-                f"    epoch {epoch}: train batch {b}/{n_batches} "
-                f"({100 * b // n_batches}%)  {time.time() - t_ep:.0f}s"
-            )
-    return (total_weighted / total_valid.clamp(min=1)).item()
-
-
-@torch.no_grad()
-def validate(model, loader, criterion, device, use_amp=False, logger=None, epoch=None):
-    model.eval()
-    total_weighted = torch.zeros((), device=device)
-    total_valid = torch.zeros((), device=device)
-    all_preds, all_targets = [], []
-    n_batches = len(loader)
-    log_every = max(1, n_batches // 10)
-    t_ep = time.time()
-    for b, (features, targets) in enumerate(loader, 1):
-        features = features.to(device, non_blocking=True)
-        targets = targets.to(device, non_blocking=True)
-        with torch.autocast(
-            device_type=device.type, dtype=torch.bfloat16, enabled=use_amp
-        ):
-            preds = model(features)
-            loss = criterion(preds, targets)
-        n_valid = torch.isfinite(targets).sum()
-        total_weighted += loss.detach().float() * n_valid.float()
-        total_valid += n_valid
-        all_preds.append(preds.reshape(-1).float().cpu())
-        all_targets.append(targets.reshape(-1).float().cpu())
-        if logger is not None and (b % log_every == 0 or b == n_batches):
-            logger.info(
-                f"    epoch {epoch}: val batch {b}/{n_batches} "
-                f"({100 * b // n_batches}%)  {time.time() - t_ep:.0f}s"
-            )
-    avg_loss = (total_weighted / total_valid.clamp(min=1)).item()
-    p = torch.cat(all_preds)
-    t = torch.cat(all_targets)
-    mask = torch.isfinite(t)
-    p = p[mask]
-    t = t[mask]
-    if p.numel() == 0:
-        return avg_loss, float("nan"), float("nan")
-    rmse = torch.sqrt(torch.mean((p - t) ** 2)).item()
-    ss_res = torch.sum((t - p) ** 2)
-    ss_tot = torch.sum((t - t.mean()) ** 2)
-    r2 = (1.0 - ss_res / (ss_tot + 1e-12)).item()
-    return avg_loss, rmse, r2
-
-
-# ── Site pool builder ───────────────────────────────────────────────────────
-
-
-def _build_pools(args, all_years, logger) -> tuple:
+def setup_directories_and_logging(args) -> tuple:
     """
-    Return (train_pool, val_pool) as lists of site_id strings.
+    Create the experiment directory tree and return a configured Logger.
 
-    Two sources for the site pool:
-      - `--selected_pixels selected_pixels.nc` (preferred)  : pre-sampled
-        subset (e.g. 10 % of valid pixels) used by the new pixelset pipeline.
-      - `--valid_dir`  : union over all_years of valid_pixels_{Y}.nc masks,
-        optionally restricted to the row/col bbox.
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``output_dir`` and ``experiment``.
+
+    Returns
+    -------
+    paths : EasyDict
+        Dictionary with attribute access to the created directories:
+        ``exp``, ``checkpoints``, ``logs``.
+    logger : Logger
+        Configured logger writing to ``<logs>/train.log``.
+    """
+    exp_dir = os.path.join(args.output_dir, args.experiment)
+
+    paths = EasyDict()
+    paths.exp = exp_dir
+    paths.checkpoints = os.path.join(exp_dir, "checkpoints")
+    paths.logs = os.path.join(exp_dir, "logs")
+
+    for p in (paths.exp, paths.checkpoints, paths.logs):
+        FileUtils.makedir(p)
+
+    logger = Logger(
+        console_output=True,
+        file_output=True,
+        log_file=os.path.join(paths.logs, "train.log"),
+    )
+    logger.show_header("PhenoNN training (RAM / method C2 working-set)")
+    return paths, logger
+
+
+# ── Phase 3 — configuration dump ────────────────────────────────────────────
+
+
+def log_configuration(args, logger) -> None:
+    """
+    Log the full configuration once, before the run starts.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments.
+    logger : Logger
+        Logger instance.
+    """
+    logger.info("=" * 60)
+    logger.info("CONFIGURATION")
+    logger.info("=" * 60)
+    logger.info(f"Experiment      : {args.experiment}")
+    logger.info(f"Output dir      : {args.output_dir}")
+    logger.info(f"Model type      : {args.type}")
+    logger.info(f"seq_length      : {args.seq_length}")
+    logger.info(f"PFT mixing      : {args.pft_mixing}")
+    logger.info(f"PFT meteo only  : {args.pft_meteo_only}")
+    logger.info(f"Loss            : {args.loss_type}")
+    logger.info(f"Train years     : {args.train_years}")
+    logger.info(f"Val years       : {args.val_years}")
+    logger.info(f"Batch size      : {args.batch_size}")
+    logger.info(f"Num epochs      : {args.num_epochs}")
+    logger.info(f"Learning rate   : {args.learning_rate}")
+    logger.info(f"Seed            : {args.seed}")
+    logger.info("=" * 60)
+
+
+# ── Phase 4 — device and seeds ──────────────────────────────────────────────
+
+
+def setup_device_and_seed(args, logger) -> torch.device:
+    """
+    Set the random seeds and pick the compute device.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``seed``.
+    logger : Logger
+        Logger instance.
+
+    Returns
+    -------
+    torch.device
+        The device every model and batch will be moved to.
+    """
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Device          : {device}")
+    logger.info(f"Random seed     : {args.seed}")
+
+    # Fixed input shapes → let cuDNN pick the best kernels.
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    return device
+
+
+# ── Phase 5-7 — optional auxiliary tables ───────────────────────────────────
+
+
+def load_norm_stats(args, logger):
+    """
+    Load the per-feature normalisation statistics, if requested.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``stats_path``.
+    logger : Logger
+        Logger instance.
+
+    Returns
+    -------
+    dict or None
+        The parsed statistics, or ``None`` when the path is empty.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``stats_path`` is set but the file does not exist.
+    """
+    if not args.stats_path:
+        logger.info("Norm stats      : OFF (raw scales)")
+        return None
+    if not os.path.exists(args.stats_path):
+        raise FileNotFoundError(args.stats_path)
+    with open(args.stats_path) as f:
+        norm_stats = json.load(f)
+    logger.info(f"Norm stats      : {args.stats_path}  ({len(norm_stats)} entries)")
+    return norm_stats
+
+
+def load_co2_lut_if_requested(args, norm_stats, logger):
+    """
+    Load the CO2 lookup table, if requested.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``co2_path``.
+    norm_stats : dict or None
+        Feature statistics. When not ``None``, the LUT is checked for a
+        matching ``co2`` entry.
+    logger : Logger
+        Logger instance.
+
+    Returns
+    -------
+    dict or None
+        Per-year CO2 concentrations, or ``None``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``co2_path`` is set but the file is missing.
+    RuntimeError
+        If statistics are provided but do not contain a ``co2`` entry.
+    """
+    if not args.co2_path:
+        return None
+    if not os.path.exists(args.co2_path):
+        raise FileNotFoundError(args.co2_path)
+    co2_lut = load_co2_lut(args.co2_path)
+    logger.info(f"CO2 LUT         : {args.co2_path}  ({len(co2_lut)} years)")
+    if norm_stats is not None and "co2" not in norm_stats:
+        raise RuntimeError(
+            "stats_path is set but contains no 'co2' entry while CO2 is "
+            "enabled. Regenerate the stats file with the CO2 LUT."
+        )
+    return co2_lut
+
+
+def load_parent_map_if_requested(args, logger):
+    """
+    Load the optional 0.05° → 0.1° parent map.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``parent_map``.
+    logger : Logger
+        Logger instance.
+
+    Returns
+    -------
+    dict or None
+        Mapping from 0.05° site id to 0.1° cell id, or ``None``.
+    """
+    if not getattr(args, "parent_map", ""):
+        logger.info("Parent map      : OFF (features indexed on the site pool)")
+        return None
+    if not os.path.exists(args.parent_map):
+        raise FileNotFoundError(args.parent_map)
+    parent_map = load_parent01_map(args.parent_map)
+    logger.info(
+        f"Parent map      : {args.parent_map}  "
+        f"({len(parent_map):,} 0.05°→0.1° links)"
+    )
+    return parent_map
+
+
+# ── Phase 8 — site pools ────────────────────────────────────────────────────
+
+
+def build_site_pools(args, all_years, logger) -> tuple:
+    """
+    Build the train and validation site pools.
+
+    Two sources are supported, in this order:
+
+    - ``--selected_pixels``: a pre-sampled subset.
+    - ``--valid_dir``: the union over all years of ``valid_pixels_{Y}.nc``
+      masks, optionally restricted to the row/col bbox.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments.
+    all_years : list of int
+        Union of train and validation years.
+    logger : Logger
+        Logger instance.
+
+    Returns
+    -------
+    train_pool : list of str
+    val_pool : list of str
+
+    Raises
+    ------
+    ValueError
+        If neither ``--selected_pixels`` nor ``--valid_dir`` is provided, or
+        if ``--subset`` is out of range.
+    RuntimeError
+        If ``--valid_dir`` is used but no valid pixel is found.
     """
     if args.selected_pixels:
         all_sites = sorted(load_selected_pixels(args.selected_pixels))
@@ -498,10 +574,7 @@ def _build_pools(args, all_years, logger) -> tuple:
         bbox_rows = (args.row_min, args.row_max) if args.row_max >= 0 else None
         bbox_cols = (args.col_min, args.col_max) if args.col_max >= 0 else None
         valid_per_year = list_valid_sites(
-            args.valid_dir,
-            all_years,
-            bbox_rows,
-            bbox_cols,
+            args.valid_dir, all_years, bbox_rows, bbox_cols
         )
         all_sites = sorted(set().union(*valid_per_year.values()))
         if not all_sites:
@@ -510,21 +583,14 @@ def _build_pools(args, all_years, logger) -> tuple:
                 "and check --valid_dir + --row/col bounds."
             )
         logger.info(
-            f"Site pool       : {len(all_sites):,} unique valid "
-            f"pixels (across {len(all_years)} years)"
+            f"Site pool       : {len(all_sites):,} unique valid pixels "
+            f"(across {len(all_years)} years)"
         )
     else:
         raise ValueError(
-            "Provide either --selected_pixels (recommended for pixelset "
-            "pipeline) or --valid_dir."
+            "Provide either --selected_pixels (recommended) or --valid_dir."
         )
 
-    # Optional pool subsetting: keep a fixed random fraction of the pool BEFORE
-    # the train/val split, so BOTH pools shrink and the working-set (union of
-    # per-epoch samples) can never exceed fraction×pool — decoupling resident
-    # RAM from --num_epochs. Deterministic (own RandomState(seed)) so the choice
-    # is stable across runs/--resume; a separate instance leaves the split RNG
-    # below untouched.
     if not (0.0 < args.subset <= 1.0):
         raise ValueError(f"--subset must be in (0, 1], got {args.subset}")
     if args.subset < 1.0:
@@ -539,38 +605,46 @@ def _build_pools(args, all_years, logger) -> tuple:
         )
 
     rng = np.random.RandomState(args.seed)
-    overlap = args.val_fraction_of_grid >= 100
-    if overlap:
-        train_pool = list(all_sites)
-        val_pool = list(all_sites)
+    if args.val_fraction_of_grid >= 100:
         logger.info(
-            "Mode            : OVERLAP — train and val drawn from "
-            "the same pool (years must be disjoint)"
+            "Mode            : OVERLAP — train and val from the same pool "
+            "(years must be disjoint)"
         )
-    else:
-        shuffled = rng.permutation(all_sites).tolist()
-        n_val_pool = max(
-            args.n_val_sites, int(args.val_fraction_of_grid * len(shuffled))
-        )
-        val_pool = shuffled[:n_val_pool]
-        train_pool = shuffled[n_val_pool:]
-        logger.info(
-            f"Mode            : DISJOINT — train={len(train_pool):,} "
-            f"val={len(val_pool):,}"
-        )
+        return list(all_sites), list(all_sites)
+
+    shuffled = rng.permutation(all_sites).tolist()
+    n_val_pool = max(args.n_val_sites, int(args.val_fraction_of_grid * len(shuffled)))
+    val_pool = shuffled[:n_val_pool]
+    train_pool = shuffled[n_val_pool:]
+    logger.info(
+        f"Mode            : DISJOINT — train={len(train_pool):,} "
+        f"val={len(val_pool):,}"
+    )
     return train_pool, val_pool
 
 
-# ── Working-set computation (replay the train.py per-epoch sampler) ───────────
+# ── Phase 9 — working set ───────────────────────────────────────────────────
 
 
-def _compute_working_set(args, train_pool, train_years):
-    """Union of the sites the per-epoch sampler will draw over the whole run.
+def compute_working_set(args, train_pool, train_years) -> list:
+    """
+    Union of the sites the per-epoch sampler will ever draw.
 
-    Replays the EXACT RNG sequence used by the training loop below so
-    the loaded set matches what the loop samples (each epoch uses an
-    independent RandomState(seed + epoch), so a superset over all epochs is
-    safe regardless of --resume).
+    Replays the exact RNG sequence used by the training loop so the loaded
+    set matches what the loop samples. Independent of ``--resume``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``n_sites_per_epoch``, ``n_years_per_epoch``,
+        ``seed``, ``num_epochs``.
+    train_pool : list of str
+    train_years : list of int
+
+    Returns
+    -------
+    list of str
+        Sorted site ids.
     """
     working: set = set()
     n_years = min(args.n_years_per_epoch, len(train_years))
@@ -578,191 +652,95 @@ def _compute_working_set(args, train_pool, train_years):
         rng = np.random.RandomState(args.seed + epoch)
         n_sites = min(args.n_sites_per_epoch, len(train_pool))
         sites = rng.choice(train_pool, size=n_sites, replace=False)
-        # consume the years draw too, to keep the stream identical to train.py
-        rng.choice(train_years, size=n_years, replace=False)
+        rng.choice(train_years, size=n_years, replace=False)  # keep stream aligned
         working.update(sites.tolist())
     return sorted(working)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Phase 10 — anomaly climatology ──────────────────────────────────────────
 
 
-def main():
-    args = parse_args()
-
-    # ── Resume: merge checkpoint args first (same as train.py) ──
-    resume_ckpt = None
-    if args.resume:
-        if not os.path.exists(args.resume):
-            raise FileNotFoundError(f"--resume {args.resume!r} does not exist")
-        print(f"Resuming from: {args.resume}")
-        resume_ckpt = torch.load(args.resume, map_location="cpu", weights_only=False)
-        ckpt_args = resume_ckpt.get("args", {})
-        explicit = _cli_explicit_args()
-        for k, v in ckpt_args.items():
-            if k in explicit and k != "resume":
-                continue
-            if hasattr(args, k):
-                setattr(args, k, v)
-
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
-
-    exp_dir = os.path.join(args.output_dir, args.experiment)
-    ckpt_dir = os.path.join(exp_dir, "checkpoints")
-    log_dir = os.path.join(exp_dir, "logs")
-    for d in [ckpt_dir, log_dir]:
-        FileUtils.makedir(d)
-
-    logger = Logger(
-        console_output=True,
-        file_output=True,
-        log_file=os.path.join(log_dir, "train.log"),
-    )
-    logger.show_header("PhenoNN training (RAM / method C2 working-set)")
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f"Device          : {device}")
-    # Fixed input shapes (seq_length, batch) → let cuDNN pick the best kernels.
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cuda.matmul.allow_tf32 = True  # TF32 matmuls (Ampere+)
-    torch.backends.cudnn.allow_tf32 = True
-
-    shared = load_shared(args, logger, device, resume_ckpt)
-    train_one_config(args, shared, logger, resume_ckpt)
-
-
-def load_shared(args, logger, device, resume_ckpt=None):
-    """Load into RAM ONCE everything a run reuses across hyperparameter configs.
-
-    Parses the year ranges, loads the norm stats / CO2 LUT / 0.05°→0.1° parent
-    map, builds the site pools and the working-set, computes the anomaly
-    climatology, and loads the validation set and the training working-set into
-    RAM. Returns a SharedData. For a sweep whose subset / seed / years /
-    n_sites_per_epoch / num_epochs are fixed, this is identical for every config
-    — so run_sweep_inproc.py calls it once and reuses the result.
+def compute_anomaly_climatology(args, working_sites, val_sites, resume_ckpt, logger):
     """
-    if getattr(args, "daily_lai", False) and not args.daily_target_dir:
-        raise SystemExit(
-            "--daily_lai requires --daily_target_dir " "(folder of LAI_daily_{Y}.nc)."
-        )
+    Build the per-site dekadal climatology when ``--anomaly_mode`` is on.
 
-    train_years = parse_year_list(args.train_years)
-    val_years = parse_year_list(args.val_years)
-    if not train_years or not val_years:
-        raise ValueError("--train_years and --val_years are required.")
-    all_years = sorted(set(train_years) | set(val_years))
-    logger.info(f"Train years     : {train_years}")
-    logger.info(f"Val years       : {val_years}")
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``anomaly_mode``, ``clim_years``,
+        ``clim_target_dir``, ``target_dir``.
+    working_sites : list of str
+    val_sites : list of str
+    resume_ckpt : dict or None
+        A previously-loaded checkpoint; when it contains ``anomaly_clim``,
+        that is reused instead of being recomputed.
+    logger : Logger
+        Logger instance.
 
-    # ── Norm stats (optional) ──
-    norm_stats = None
-    if args.stats_path:
-        if not os.path.exists(args.stats_path):
-            raise FileNotFoundError(args.stats_path)
-        with open(args.stats_path) as f:
-            norm_stats = json.load(f)
+    Returns
+    -------
+    dict or None
+    """
+    if not args.anomaly_mode:
+        return None
+    clim_years = parse_year_list(args.clim_years)
+    clim_dir = args.clim_target_dir or args.target_dir
+    if resume_ckpt is not None and resume_ckpt.get("anomaly_clim") is not None:
+        anomaly_clim = resume_ckpt["anomaly_clim"]
         logger.info(
-            f"Norm stats      : {args.stats_path}  " f"({len(norm_stats)} entries)"
+            f"Climatology     : reused from checkpoint "
+            f"({len(anomaly_clim):,} sites)"
         )
-    else:
-        logger.info("Norm stats      : OFF (raw scales)")
-
-    # ── CO2 LUT (optional) ──
-    co2_lut = None
-    if args.co2_path:
-        if not os.path.exists(args.co2_path):
-            raise FileNotFoundError(args.co2_path)
-        co2_lut = load_co2_lut(args.co2_path)
-        logger.info(f"CO2 LUT         : {args.co2_path}  ({len(co2_lut)} years)")
-        if norm_stats is not None and "co2" not in norm_stats:
-            raise RuntimeError(
-                "stats_path is set but contains no 'co2' entry while CO2 is "
-                "enabled. Regenerate the stats file with the CO2 LUT."
-            )
-
-    # ── 0.05°→0.1° parent map (optional) ──
-    # When set, ERA5 features are read from the deduplicated 0.1° pixelset via
-    # each 0.05° site's containing cell; no 0.05°-indexed feature file needed.
-    parent_map = None
-    if getattr(args, "parent_map", ""):
-        if not os.path.exists(args.parent_map):
-            raise FileNotFoundError(args.parent_map)
-        parent_map = load_parent01_map(args.parent_map)
-        logger.info(
-            f"Parent map      : {args.parent_map}  "
-            f"({len(parent_map):,} 0.05°→0.1° links)"
-        )
-    else:
-        logger.info("Parent map      : OFF (features indexed on the site pool)")
-
-    logger.info(
-        f"Features        : {FEATURE_CHANNELS} channels, "
-        f"seq_length {args.seq_length}"
+        return anomaly_clim
+    wanted = list(set(working_sites) | set(val_sites))
+    logger.start_task("Climatology", f"{len(clim_years)} years × {len(wanted):,} sites")
+    anomaly_clim = compute_climatology_lookup(
+        target_dir=clim_dir,
+        clim_years=clim_years,
+        wanted_sites=wanted,
+        verbose=False,
     )
-    logger.info(f"LAI target norm : {'ON' if args.normalize_lai else 'OFF'}")
-    if getattr(args, "daily_lai", False):
-        logger.info(
-            f"Daily LAI mode  : ON — train on 365-day curve "
-            f"({args.daily_target_dir}); val scores real dekads only"
-        )
-    logger.info(f"Anomaly mode    : {args.anomaly_mode}")
-    logger.info(
-        f"PFT mixing      : {args.pft_mixing}"
-        + (
-            f" (meteo_only: base sees {PFT_START} channels)"
-            if args.pft_mixing and args.pft_meteo_only
-            else ""
-        )
-        + (
-            " (nonneg: L_k soft-floored at 0)"
-            if args.pft_mixing and args.pft_nonneg
-            else ""
-        )
-    )
+    logger.success(f"  {len(anomaly_clim):,} site climatologies built")
+    return anomaly_clim
 
-    # ── Site pools (shared logic with train.py) ──
-    train_pool, val_pool = _build_pools(args, all_years, logger)
 
-    rng_split = np.random.RandomState(args.seed + 1)
-    n_val_used = min(args.n_val_sites, len(val_pool))
-    val_sites = rng_split.choice(val_pool, size=n_val_used, replace=False).tolist()
-    logger.info(f"Val sites used  : {len(val_sites):,}")
+# ── Phase 11 — datasets and loaders ─────────────────────────────────────────
 
-    # ── Working-set = sites the loop will ever sample ──
-    working_sites = _compute_working_set(args, train_pool, train_years)
-    logger.info(
-        f"Working-set     : {len(working_sites):,} train sites "
-        f"(of {len(train_pool):,} pool) loaded into RAM"
-    )
 
-    # ── Anomaly climatology (optional) — over working-set ∪ val ──
-    anomaly_clim = None
-    if args.anomaly_mode:
-        clim_years = parse_year_list(args.clim_years)
-        clim_dir = args.clim_target_dir or args.target_dir
-        if resume_ckpt is not None and resume_ckpt.get("anomaly_clim") is not None:
-            anomaly_clim = resume_ckpt["anomaly_clim"]
-            logger.info(
-                f"Climatology     : reused from checkpoint "
-                f"({len(anomaly_clim):,} sites)"
-            )
-        else:
-            wanted = list(set(working_sites) | set(val_sites))
-            logger.start_task(
-                "Climatology", f"{len(clim_years)} years × {len(wanted):,} sites"
-            )
-            anomaly_clim = compute_climatology_lookup(
-                target_dir=clim_dir,
-                clim_years=clim_years,
-                wanted_sites=wanted,
-                verbose=False,
-            )
-            logger.success(f"  {len(anomaly_clim):,} site climatologies built")
+def create_datasets_and_loaders(
+    args,
+    val_sites,
+    working_sites,
+    train_years,
+    val_years,
+    norm_stats,
+    co2_lut,
+    anomaly_clim,
+    parent_map,
+    logger,
+) -> tuple:
+    """
+    Build the validation and training datasets and their DataLoaders.
 
-    # ── Load datasets into RAM ONCE ──
+    The validation dataset uses ``daily_mode='obs'`` in ``--daily_lai`` mode,
+    so the loss and metrics score only the real dekads. The training dataset
+    uses ``daily_mode='interp'`` in that mode, so the loss covers all days
+    of the interpolated curve.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+    val_sites, working_sites : list of str
+    train_years, val_years : list of int
+    norm_stats, co2_lut, anomaly_clim, parent_map : dict or None
+    logger : Logger
+
+    Returns
+    -------
+    val_ds : RamLAIDataset
+    val_loader : DataLoader
+    train_full : RamLAIDataset
+    """
     logger.start_task(
         "Loading validation set into RAM",
         f"{len(val_sites)} sites × {len(val_years)} years",
@@ -781,7 +759,7 @@ def load_shared(args, logger, device, resume_ckpt=None):
         verbose=True,
         threaded_read=args.threaded_feature_read,
         parent_map=parent_map,
-        daily_mode=("obs" if getattr(args, "daily_lai", False) else "off"),
+        daily_mode=("obs" if args.daily_lai else "off"),
     )
     if len(val_ds) == 0:
         raise RuntimeError("Validation dataset is empty. Check inputs.")
@@ -812,66 +790,70 @@ def load_shared(args, logger, device, resume_ckpt=None):
         verbose=True,
         threaded_read=args.threaded_feature_read,
         parent_map=parent_map,
-        daily_mode=("interp" if getattr(args, "daily_lai", False) else "off"),
-        daily_target_dir=getattr(args, "daily_target_dir", ""),
+        daily_mode=("interp" if args.daily_lai else "off"),
+        daily_target_dir=args.daily_target_dir,
     )
     if len(train_full) == 0:
         raise RuntimeError("Training dataset is empty. Check inputs.")
     logger.info(f"Train samples   : {len(train_full):,} resident in RAM")
 
-    return SharedData(
-        device=device,
-        train_pool=train_pool,
-        val_sites=val_sites,
-        train_years=train_years,
-        val_years=val_years,
-        norm_stats=norm_stats,
-        co2_lut=co2_lut,
-        anomaly_clim=anomaly_clim,
-        val_ds=val_ds,
-        val_loader=val_loader,
-        train_full=train_full,
-    )
+    return val_ds, val_loader, train_full
 
 
-def train_one_config(args, shared, logger, resume_ckpt=None):
-    """Build the model/optimizer for ONE hyperparameter config and train it on
-    the already-resident SharedData, writing its own checkpoints and plots under
-    args.output_dir/args.experiment. Reuses load_shared()'s RAM datasets, so a
-    sweep pays the disk load only once.
+# ── Phase 12 — model ────────────────────────────────────────────────────────
+
+
+def initialize_model(args, norm_stats, device, logger):
     """
-    device = shared.device
-    train_pool = shared.train_pool
-    val_sites = shared.val_sites
-    train_years = shared.train_years
-    val_years = shared.val_years
-    norm_stats = shared.norm_stats
-    co2_lut = shared.co2_lut
-    anomaly_clim = shared.anomaly_clim
-    val_loader = shared.val_loader
-    train_full = shared.train_full
+    Build the model and move it to the device.
 
-    exp_dir = os.path.join(args.output_dir, args.experiment)
-    ckpt_dir = os.path.join(exp_dir, "checkpoints")
-    FileUtils.makedir(ckpt_dir)
+    Parameters
+    ----------
+    args : argparse.Namespace
+    norm_stats : dict or None
+    device : torch.device
+    logger : Logger
 
-    # ── Model ──
+    Returns
+    -------
+    model : nn.Module
+    wrapper_label : str
+        Human-readable name of the wrapper applied.
+    """
     if args.pft_mixing:
         model = build_model_pft(args, norm_stats).to(device)
         wrapper_label = "PFTMixingWrapper"
     else:
         model = build_model(args).to(device)
-        wrapper_label = (
-            "DailyWrapper"
-            if getattr(args, "daily_lai", False)
-            else "Every10DaysWrapper"
-        )
+        wrapper_label = "DailyWrapper" if args.daily_lai else "Every10DaysWrapper"
+
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(
         f"Model           : {args.type} + {wrapper_label}  "
         f"({n_params:,} parameters)"
     )
+    return model, wrapper_label
 
+
+# ── Phase 13 — optimizer and scheduler ──────────────────────────────────────
+
+
+def create_optimizer_and_scheduler(args, model, device, logger):
+    """
+    Build the Adam optimizer and the plateau scheduler.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+    model : nn.Module
+    device : torch.device
+    logger : Logger
+
+    Returns
+    -------
+    optimizer : torch.optim.Optimizer
+    scheduler : torch.optim.lr_scheduler.ReduceLROnPlateau
+    """
     optimizer = optim.Adam(
         model.parameters(),
         lr=args.learning_rate,
@@ -881,6 +863,27 @@ def train_one_config(args, shared, logger, resume_ckpt=None):
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=5
     )
+    logger.info(f"Optimizer       : Adam (lr={args.learning_rate})")
+    return optimizer, scheduler
+
+
+# ── Phase 14 — loss ─────────────────────────────────────────────────────────
+
+
+def create_loss_function(args, logger):
+    """
+    Build the NaN-safe loss closure from the CLI arguments.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+    logger : Logger
+
+    Returns
+    -------
+    callable
+        Function ``(pred, target) -> tensor``.
+    """
     criterion = make_loss_fn(args)
     logger.info(
         f"Loss            : {args.loss_type} "
@@ -889,81 +892,434 @@ def train_one_config(args, shared, logger, resume_ckpt=None):
         f"corr_loss={args.corr_loss_weight}, "
         f"amp_loss={args.amp_loss_weight})"
     )
+    return criterion
 
-    # ── Resume restore ──
-    best_val_loss = float("inf")
-    best_epoch = 0
-    epochs_no_improve = 0
-    start_epoch = 1
+
+# ── Phase 15 — resume ───────────────────────────────────────────────────────
+
+
+def load_checkpoint_if_requested(
+    args,
+    model,
+    optimizer,
+    device,
+    logger,
+):
+    """
+    Load a previous checkpoint, when ``--resume`` is set.
+
+    Delegates to :meth:`ModelUtils.load_training_checkpoint`, which handles
+    DataParallel key rewriting and returns the full training state.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Reads ``resume``.
+    model : nn.Module
+        Model the weights are loaded into.
+    optimizer : torch.optim.Optimizer
+        Optimizer whose state is restored.
+    device : torch.device
+        Device to load the checkpoint to.
+    logger : Logger
+
+    Returns
+    -------
+    resume_ckpt : dict or None
+    start_epoch : int
+    best_val_loss : float
+    best_epoch : int
+    epochs_no_improve : int
+    train_hist, valid_hist : dict
+    """
     train_hist, valid_hist = make_history_dicts()
-    if resume_ckpt is not None:
-        model.load_state_dict(resume_ckpt["model_state_dict"])
-        optimizer.load_state_dict(resume_ckpt["optimizer_state_dict"])
-        if "scheduler_state_dict" in resume_ckpt:
-            scheduler.load_state_dict(resume_ckpt["scheduler_state_dict"])
-        train_hist = resume_ckpt.get("train_hist", train_hist)
-        valid_hist = resume_ckpt.get("valid_hist", valid_hist)
-        best_val_loss = resume_ckpt.get("best_val_loss", best_val_loss)
-        best_epoch = resume_ckpt.get("best_epoch", best_epoch)
-        epochs_no_improve = resume_ckpt.get("epochs_no_improve", 0)
-        start_epoch = resume_ckpt["epoch"] + 1
-        logger.info(
-            f"Resumed         : epoch {resume_ckpt['epoch']}, "
-            f"best_val_loss={best_val_loss:.6f}@{best_epoch}"
-        )
-        del resume_ckpt
 
-    # ── Training loop (same per-epoch sampling as train.py, but RAM Subset) ──
+    if not args.resume:
+        return None, 1, float("inf"), 0, 0, train_hist, valid_hist
+
+    if not os.path.exists(args.resume):
+        raise FileNotFoundError(f"--resume {args.resume!r} does not exist")
+
+    # ── Merge the checkpoint's stored args first (CLI overrides win) ──
+    resume_ckpt_raw = torch.load(args.resume, map_location="cpu", weights_only=False)
+    ckpt_args = resume_ckpt_raw.get("args", {})
+    explicit = _cli_explicit_args()
+    for k, v in ckpt_args.items():
+        if k in explicit:
+            continue
+        if k == "resume":
+            continue
+        if hasattr(args, k):
+            setattr(args, k, v)
+
+    logger.info(f"Resuming from   : {args.resume}")
+    logger.start_task("Loading checkpoint")
+
+    (
+        epoch,
+        samples_processed,
+        batches_processed,
+        best_val_loss,
+        best_epoch,
+        checkpoint,
+    ) = ModelUtils.load_training_checkpoint(
+        args.resume,
+        model,
+        optimizer,
+        device,
+        logger=logger,
+    )
+
+    train_hist = checkpoint.get("train_hist", train_hist) if checkpoint else train_hist
+    valid_hist = checkpoint.get("valid_hist", valid_hist) if checkpoint else valid_hist
+    epochs_no_improve = checkpoint.get("epochs_no_improve", 0) if checkpoint else 0
+    start_epoch = epoch + 1
+
+    logger.info(
+        f"Resumed         : epoch {epoch}, "
+        f"best_val_loss={best_val_loss:.6f}@{best_epoch}"
+    )
+    return (
+        checkpoint,
+        start_epoch,
+        best_val_loss,
+        best_epoch,
+        epochs_no_improve,
+        train_hist,
+        valid_hist,
+    )
+
+
+# ── Phase 16 — inner loops ──────────────────────────────────────────────────
+
+
+def train_one_epoch(
+    model,
+    loader,
+    criterion,
+    optimizer,
+    device,
+    max_grad_norm,
+    use_amp=False,
+    logger=None,
+    epoch=None,
+) -> float:
+    """
+    Run one training epoch.
+
+    Parameters
+    ----------
+    model : nn.Module
+    loader : DataLoader
+    criterion : callable
+    optimizer : torch.optim.Optimizer
+    device : torch.device
+    max_grad_norm : float
+    use_amp : bool, optional
+    logger : Logger, optional
+    epoch : int, optional
+        Used in the log lines only.
+
+    Returns
+    -------
+    float
+        Mean NaN-weighted loss over the epoch.
+    """
+    model.train()
+    total_weighted = torch.zeros((), device=device)
+    total_valid = torch.zeros((), device=device)
+    n_batches = len(loader)
+    log_every = max(1, n_batches // 10)
+    t_ep = time.time()
+    for b, (features, targets) in enumerate(loader, 1):
+        features = features.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+        optimizer.zero_grad(set_to_none=True)
+        with torch.autocast(
+            device_type=device.type, dtype=torch.bfloat16, enabled=use_amp
+        ):
+            preds = model(features)
+            loss = criterion(preds, targets)
+        if loss.requires_grad and torch.isfinite(loss).item():
+            loss.backward()
+            if max_grad_norm > 0:
+                nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+            optimizer.step()
+        n_valid = torch.isfinite(targets).sum()
+        total_weighted += loss.detach().float() * n_valid.float()
+        total_valid += n_valid
+        if logger is not None and (b % log_every == 0 or b == n_batches):
+            logger.info(
+                f"    epoch {epoch}: train batch {b}/{n_batches} "
+                f"({100 * b // n_batches}%)  {time.time() - t_ep:.0f}s"
+            )
+    return (total_weighted / total_valid.clamp(min=1)).item()
+
+
+@torch.no_grad()
+def validate(
+    model,
+    loader,
+    criterion,
+    device,
+    use_amp=False,
+    logger=None,
+    epoch=None,
+) -> tuple:
+    """
+    Run one validation pass.
+
+    Parameters
+    ----------
+    model : nn.Module
+    loader : DataLoader
+    criterion : callable
+    device : torch.device
+    use_amp : bool, optional
+    logger : Logger, optional
+    epoch : int, optional
+
+    Returns
+    -------
+    avg_loss : float
+    rmse : float
+    r2 : float
+    """
+    model.eval()
+    total_weighted = torch.zeros((), device=device)
+    total_valid = torch.zeros((), device=device)
+    all_preds, all_targets = [], []
+    n_batches = len(loader)
+    log_every = max(1, n_batches // 10)
+    t_ep = time.time()
+    for b, (features, targets) in enumerate(loader, 1):
+        features = features.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+        with torch.autocast(
+            device_type=device.type, dtype=torch.bfloat16, enabled=use_amp
+        ):
+            preds = model(features)
+            loss = criterion(preds, targets)
+        n_valid = torch.isfinite(targets).sum()
+        total_weighted += loss.detach().float() * n_valid.float()
+        total_valid += n_valid
+        all_preds.append(preds.reshape(-1).float().cpu())
+        all_targets.append(targets.reshape(-1).float().cpu())
+        if logger is not None and (b % log_every == 0 or b == n_batches):
+            logger.info(
+                f"    epoch {epoch}: val batch {b}/{n_batches} "
+                f"({100 * b // n_batches}%)  {time.time() - t_ep:.0f}s"
+            )
+    avg_loss = (total_weighted / total_valid.clamp(min=1)).item()
+    p = torch.cat(all_preds)
+    t = torch.cat(all_targets)
+    mask = torch.isfinite(t)
+    p, t = p[mask], t[mask]
+    if p.numel() == 0:
+        return avg_loss, float("nan"), float("nan")
+    rmse = torch.sqrt(torch.mean((p - t) ** 2)).item()
+    ss_res = torch.sum((t - p) ** 2)
+    ss_tot = torch.sum((t - t.mean()) ** 2)
+    r2 = (1.0 - ss_res / (ss_tot + 1e-12)).item()
+    return avg_loss, rmse, r2
+
+
+# ── Phase 16b — epoch loader ────────────────────────────────────────────────
+
+
+def build_epoch_loader(args, train_full, epoch) -> tuple:
+    """
+    Build the DataLoader for one epoch by sampling sites and years.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Must expose ``_train_pool`` and ``_train_years`` (attached by
+        :func:`run_training`).
+    train_full : RamLAIDataset
+    epoch : int
+        Used to derive the per-epoch RNG seed.
+
+    Returns
+    -------
+    loader : DataLoader
+    n_sites : int
+    sampled_years : list of int
+    n_indices : int
+    """
+    epoch_rng = np.random.RandomState(args.seed + epoch)
+    n_sites = min(args.n_sites_per_epoch, len(args._train_pool))
+    n_years = min(args.n_years_per_epoch, len(args._train_years))
+
+    sampled_sites = epoch_rng.choice(
+        args._train_pool,
+        size=n_sites,
+        replace=False,
+    ).tolist()
+    sampled_years = sorted(
+        epoch_rng.choice(
+            args._train_years,
+            size=n_years,
+            replace=False,
+        ).tolist()
+    )
+
+    indices = [
+        train_full.sample_index[(s, y)]
+        for s in sampled_sites
+        for y in sampled_years
+        if (s, y) in train_full.sample_index
+    ]
+    loader = DataLoader(
+        Subset(train_full, indices),
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        drop_last=False,
+    )
+    return loader, len(sampled_sites), sampled_years, len(indices)
+
+
+# ── Phase 17 — summary plots ────────────────────────────────────────────────
+
+
+def generate_summary_plots(exp_dir, train_hist, valid_hist, logger) -> None:
+    """
+    Write the loss and metric history figures to ``exp_dir``.
+
+    Parameters
+    ----------
+    exp_dir : str
+    train_hist, valid_hist : dict
+    logger : Logger
+    """
+    plot_loss_histories(
+        train_hist["loss"],
+        valid_hist["loss"],
+        filename=os.path.join(exp_dir, "loss_history.png"),
+        logger=logger,
+    )
+    plot_metric_histories(
+        train_hist,
+        valid_hist,
+        filename=os.path.join(exp_dir, "metric_history.png"),
+        logger=logger,
+    )
+
+
+def _checkpoint_extras(args, shared, val_rmse, val_r2):
+    """
+    Build the dictionary of extra fields that go into every training
+    snapshot.
+
+    These are the fields that the predictor reads back from the checkpoint
+    to rebuild the dataset and denormalise the output — the site pools,
+    the normalisation tables, and the mode flags that drive the wrappers.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed CLI arguments. Reads the mode flags and the climatology
+        year range.
+    shared : SharedData
+        The resident working-set container. Supplies the site pools and
+        the two auxiliary tables.
+    val_rmse : float
+        Current epoch's validation RMSE, or NaN when unknown.
+    val_r2 : float
+        Current epoch's validation R², or NaN when unknown.
+
+    Returns
+    -------
+    dict
+        Merged into the snapshot by :meth:`ModelUtils.save_training_checkpoint`.
+    """
+    return {
+        # ── Site pools ──
+        "train_site_ids": list(shared.train_pool),
+        "val_site_ids": list(shared.val_sites),
+        # ── Normalisation and CO2 tables ──
+        "norm_stats": shared.norm_stats,
+        "co2_lut": shared.co2_lut,
+        # ── Anomaly mode ──
+        "anomaly_mode": bool(args.anomaly_mode),
+        "anomaly_clim": shared.anomaly_clim,
+        "clim_years": (parse_year_list(args.clim_years) if args.anomaly_mode else None),
+        # ── Mode flags that drive the wrapper and denormalisation ──
+        "pft_mixing": bool(args.pft_mixing),
+        "pft_meteo_only": bool(args.pft_meteo_only),
+        "normalize_lai": bool(args.normalize_lai),
+        "daily_lai": bool(args.daily_lai),
+        # ── Metrics for the run header ──
+        "val_rmse": float(val_rmse),
+        "val_r2": float(val_r2),
+    }
+
+
+# ── Orchestration ───────────────────────────────────────────────────────────
+
+
+def run_training(args, shared, logger, paths, model_objs, state) -> None:
+    """
+    Train one model on the resident ``SharedData``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+    shared : SharedData
+    logger : Logger
+    paths : EasyDict
+        Directory paths returned by :func:`setup_directories_and_logging`.
+    model_objs : tuple
+        ``(model, optimizer, scheduler, criterion)``.
+    state : tuple
+        ``(resume_ckpt, start_epoch, best_val_loss, best_epoch,
+        epochs_no_improve, train_hist, valid_hist)``.
+    """
+    model, optimizer, scheduler, criterion = model_objs
+    (
+        resume_ckpt,
+        start_epoch,
+        best_val_loss,
+        best_epoch,
+        epochs_no_improve,
+        train_hist,
+        valid_hist,
+    ) = state
+
+    device = shared.device
+    val_loader = shared.val_loader
+    train_full = shared.train_full
+
+    # Attach the epoch-sampling inputs to args for the loader builder.
+    args._train_pool = shared.train_pool
+    args._train_years = shared.train_years
+
     logger.start_task(
         "Training",
         f"{args.num_epochs} epochs " f"(start={start_epoch}, patience={args.patience})",
     )
 
-    # torch.compile wraps only the forward path; `model` stays uncompiled so
-    # state_dict / resume / predict keep clean keys (no "_orig_mod." prefix).
     run_model = torch.compile(model) if args.compile else model
 
     for epoch in range(start_epoch, args.num_epochs + 1):
         t0 = time.time()
-
-        epoch_rng = np.random.RandomState(args.seed + epoch)
-        n_sites = min(args.n_sites_per_epoch, len(train_pool))
-        n_years = min(args.n_years_per_epoch, len(train_years))
-        sampled_sites = epoch_rng.choice(
-            train_pool, size=n_sites, replace=False
-        ).tolist()
-        sampled_years = sorted(
-            epoch_rng.choice(train_years, size=n_years, replace=False).tolist()
+        loader, n_sites, sampled_years, n_idx = build_epoch_loader(
+            args, train_full, epoch
         )
-
-        # Pull the matching sample indices straight from the RAM dataset.
-        indices = [
-            train_full.sample_index[(s, y)]
-            for s in sampled_sites
-            for y in sampled_years
-            if (s, y) in train_full.sample_index
-        ]
-
         logger.info(
             f"\nEpoch {epoch:3d}/{args.num_epochs}  "
             f"sites={n_sites:,}  years={sampled_years}"
         )
-        if not indices:
+        if n_idx == 0:
             logger.warning("  Empty epoch dataset — skipped.")
             continue
-        train_loader = DataLoader(
-            Subset(train_full, indices),
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=args.num_workers,
-            pin_memory=True,
-            drop_last=False,
-        )
-        logger.info(f"  Train samples: {len(indices):,}")
+        logger.info(f"  Train samples: {n_idx:,}")
 
         train_loss = train_one_epoch(
             run_model,
-            train_loader,
+            loader,
             criterion,
             optimizer,
             device,
@@ -1006,40 +1362,50 @@ def train_one_config(args, shared, logger, resume_ckpt=None):
         else:
             epochs_no_improve += 1
 
-        snapshot = {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "scheduler_state_dict": scheduler.state_dict(),
-            "val_loss": val_loss,
-            "val_rmse": val_rmse,
-            "val_r2": val_r2,
-            "args": vars(args),
-            "norm_stats": norm_stats,
-            "train_site_ids": train_pool,
-            "val_site_ids": val_sites,
-            "train_years": train_years,
-            "val_years": val_years,
-            "model_kind": "phenon_big",
-            "pft_mixing": bool(args.pft_mixing),
-            "normalize_lai": bool(args.normalize_lai),
-            "anomaly_mode": bool(args.anomaly_mode),
-            "anomaly_clim": anomaly_clim,
-            "clim_years": (
-                parse_year_list(args.clim_years) if args.anomaly_mode else None
-            ),
-            "co2_lut": co2_lut,
-            "co2_enabled": co2_lut is not None,
-            "train_hist": train_hist,
-            "valid_hist": valid_hist,
-            "best_val_loss": best_val_loss,
-            "best_epoch": best_epoch,
-            "epochs_no_improve": epochs_no_improve,
-        }
-        torch.save(snapshot, os.path.join(ckpt_dir, "last_model.pth"))
+        # ── Every-epoch snapshot (lightweight) ──
+        ModelUtils.save_training_checkpoint(
+            model=model,
+            optimizer=optimizer,
+            epoch=epoch,
+            samples_processed=0,
+            batches_processed=0,
+            train_loss_history=train_hist.get("loss", []),
+            valid_loss_history=valid_hist.get("loss", []),
+            valid_metrics_history=valid_hist,
+            best_val_loss=best_val_loss,
+            best_epoch=best_epoch,
+            avg_val_loss=val_loss,
+            avg_epoch_loss=train_loss,
+            args=args,
+            paths=paths,
+            logger=None,  # silent for the every-epoch snapshot
+            checkpoint_type="epoch",
+            save_full_model=False,
+            extra=_checkpoint_extras(args, shared, val_rmse, val_r2),
+        )
+
         if is_best:
-            torch.save(snapshot, os.path.join(ckpt_dir, "best_model.pth"))
-            logger.success(f"  ✓ Best checkpoint saved " f"(val_loss={val_loss:.6f})")
+            ModelUtils.save_training_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                epoch=epoch,
+                samples_processed=0,
+                batches_processed=0,
+                train_loss_history=train_hist.get("loss", []),
+                valid_loss_history=valid_hist.get("loss", []),
+                valid_metrics_history=valid_hist,
+                best_val_loss=best_val_loss,
+                best_epoch=best_epoch,
+                avg_val_loss=val_loss,
+                avg_epoch_loss=train_loss,
+                args=args,
+                paths=paths,
+                logger=logger,
+                checkpoint_type="best",
+                save_full_model=True,
+                extra=_checkpoint_extras(args, shared, val_rmse, val_r2),
+            )
+            logger.success(f"  ✓ Best checkpoint saved (val_loss={val_loss:.6f})")
 
         if epochs_no_improve >= args.patience:
             logger.warning(
@@ -1048,28 +1414,242 @@ def train_one_config(args, shared, logger, resume_ckpt=None):
             )
             break
 
-        del train_loader
+        del loader
 
     logger.success(
         f"Training complete. Best epoch={best_epoch}, "
         f"best_val_loss={best_val_loss:.6f}"
     )
 
-    plot_loss_histories(
-        train_hist["loss"],
-        valid_hist["loss"],
-        filename=os.path.join(exp_dir, "loss_history.png"),
+    # ── Final snapshot ──
+    ModelUtils.save_training_checkpoint(
+        model=model,
+        optimizer=optimizer,
+        epoch=args.num_epochs,
+        samples_processed=0,
+        batches_processed=0,
+        train_loss_history=train_hist.get("loss", []),
+        valid_loss_history=valid_hist.get("loss", []),
+        valid_metrics_history=valid_hist,
+        best_val_loss=best_val_loss,
+        best_epoch=best_epoch,
+        avg_val_loss=val_loss,
+        avg_epoch_loss=train_loss,
+        args=args,
+        paths=paths,
         logger=logger,
+        checkpoint_type="final",
+        save_full_model=True,
+        extra=_checkpoint_extras(args, shared, val_rmse, val_r2),
     )
-    plot_metric_histories(
+
+    generate_summary_plots(paths.exp, train_hist, valid_hist, logger)
+    with open(os.path.join(paths.exp, "config.json"), "w") as f:
+        json.dump(vars(args), f, indent=2, default=str)
+    logger.info(f"Config saved to {os.path.join(paths.exp, 'config.json')}")
+
+
+# ── Orchestration helpers — used by main() and by the sweep drivers ─────────
+
+
+def load_shared(args, logger, device, resume_ckpt=None) -> SharedData:
+    """
+    Load everything a run reuses across configs, into RAM once.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+    logger : Logger
+    device : torch.device
+    resume_ckpt : dict or None, optional
+        When set, ``anomaly_clim`` is read from it rather than recomputed.
+
+    Returns
+    -------
+    SharedData
+    """
+    if getattr(args, "daily_lai", False) and not args.daily_target_dir:
+        raise SystemExit(
+            "--daily_lai requires --daily_target_dir " "(folder of LAI_daily_{Y}.nc)."
+        )
+
+    train_years = parse_year_list(args.train_years)
+    val_years = parse_year_list(args.val_years)
+    if not train_years or not val_years:
+        raise ValueError("--train_years and --val_years are required.")
+    all_years = sorted(set(train_years) | set(val_years))
+    logger.info(f"Train years     : {train_years}")
+    logger.info(f"Val years       : {val_years}")
+
+    norm_stats = load_norm_stats(args, logger)
+    co2_lut = load_co2_lut_if_requested(args, norm_stats, logger)
+    parent_map = load_parent_map_if_requested(args, logger)
+
+    logger.info(
+        f"Features        : {FEATURE_CHANNELS} channels, "
+        f"seq_length {args.seq_length}"
+    )
+    logger.info(f"LAI target norm : {'ON' if args.normalize_lai else 'OFF'}")
+    if getattr(args, "daily_lai", False):
+        logger.info(
+            f"Daily LAI mode  : ON — train on 365-day curve "
+            f"({args.daily_target_dir}); val scores real dekads only"
+        )
+    logger.info(f"Anomaly mode    : {args.anomaly_mode}")
+    logger.info(
+        f"PFT mixing      : {args.pft_mixing}"
+        + (
+            f" (meteo_only: base sees {PFT_START} channels)"
+            if args.pft_mixing and args.pft_meteo_only
+            else ""
+        )
+        + (
+            " (nonneg: L_k soft-floored at 0)"
+            if args.pft_mixing and args.pft_nonneg
+            else ""
+        )
+    )
+
+    train_pool, val_pool = build_site_pools(args, all_years, logger)
+
+    rng_split = np.random.RandomState(args.seed + 1)
+    n_val_used = min(args.n_val_sites, len(val_pool))
+    val_sites = rng_split.choice(val_pool, size=n_val_used, replace=False).tolist()
+    logger.info(f"Val sites used  : {len(val_sites):,}")
+
+    working_sites = compute_working_set(args, train_pool, train_years)
+    logger.info(
+        f"Working-set     : {len(working_sites):,} train sites "
+        f"(of {len(train_pool):,} pool) loaded into RAM"
+    )
+
+    anomaly_clim = compute_anomaly_climatology(
+        args, working_sites, val_sites, resume_ckpt, logger
+    )
+
+    val_ds, val_loader, train_full = create_datasets_and_loaders(
+        args,
+        val_sites,
+        working_sites,
+        train_years,
+        val_years,
+        norm_stats,
+        co2_lut,
+        anomaly_clim,
+        parent_map,
+        logger,
+    )
+
+    return SharedData(
+        device=device,
+        train_pool=train_pool,
+        val_sites=val_sites,
+        train_years=train_years,
+        val_years=val_years,
+        norm_stats=norm_stats,
+        co2_lut=co2_lut,
+        anomaly_clim=anomaly_clim,
+        val_ds=val_ds,
+        val_loader=val_loader,
+        train_full=train_full,
+    )
+
+
+def train_one_config(args, shared, logger, paths, resume_ckpt=None) -> None:
+    """
+    Train one configuration on an already-resident ``SharedData``.
+
+    The expensive disk load has already happened in :func:`load_shared`.
+    This function builds the model and optimizer, loads the resume
+    checkpoint if requested, then calls :func:`run_training`.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+    shared : SharedData
+    logger : Logger
+    paths : EasyDict
+    resume_ckpt : dict or None
+    """
+    device = shared.device
+
+    # ── Model, optimizer, loss ──
+    model, _ = initialize_model(args, shared.norm_stats, device, logger)
+    optimizer, scheduler = create_optimizer_and_scheduler(args, model, device, logger)
+    criterion = create_loss_function(args, logger)
+
+    # ── Resume ──
+    state = load_checkpoint_if_requested(args, model, optimizer, device, logger)
+    (
+        loaded_ckpt,
+        start_epoch,
+        best_val_loss,
+        best_epoch,
+        epochs_no_improve,
         train_hist,
         valid_hist,
-        filename=os.path.join(exp_dir, "metric_history.png"),
-        logger=logger,
+    ) = state
+
+    # Scheduler state is loaded after the scheduler exists.
+    if loaded_ckpt is not None and "scheduler_state_dict" in loaded_ckpt:
+        scheduler.load_state_dict(loaded_ckpt["scheduler_state_dict"])
+        logger.info("Scheduler state restored")
+
+    # ── Hand off to the training loop ──
+    run_training(
+        args,
+        shared,
+        logger,
+        paths,
+        (model, optimizer, scheduler, criterion),
+        (
+            loaded_ckpt,
+            start_epoch,
+            best_val_loss,
+            best_epoch,
+            epochs_no_improve,
+            train_hist,
+            valid_hist,
+        ),
     )
-    with open(os.path.join(exp_dir, "config.json"), "w") as f:
-        json.dump(vars(args), f, indent=2)
-    logger.info(f"Config saved to {os.path.join(exp_dir, 'config.json')}")
+
+
+# ── Entry point ─────────────────────────────────────────────────────────────
+
+
+def main():
+    """
+    Parse the CLI, set up the environment, load the working-set and train.
+    """
+    args = parse_args()
+
+    # ── Resume: load the checkpoint early so its args can be merged ──
+    resume_ckpt = None
+    if args.resume:
+        if not os.path.exists(args.resume):
+            raise FileNotFoundError(f"--resume {args.resume!r} does not exist")
+        print(f"Resuming from: {args.resume}")
+        resume_ckpt = torch.load(args.resume, map_location="cpu", weights_only=False)
+        ckpt_args = resume_ckpt.get("args", {})
+        explicit = _cli_explicit_args()
+        for k, v in ckpt_args.items():
+            if k in explicit:
+                continue
+            if k == "resume":
+                continue
+            if hasattr(args, k):
+                setattr(args, k, v)
+
+    # ── Environment ──
+    paths, logger = setup_directories_and_logging(args)
+    log_configuration(args, logger)
+    device = setup_device_and_seed(args, logger)
+
+    # ── Load the working-set once ──
+    shared = load_shared(args, logger, device, resume_ckpt)
+
+    # ── Train one config ──
+    train_one_config(args, shared, logger, paths, resume_ckpt)
 
 
 if __name__ == "__main__":

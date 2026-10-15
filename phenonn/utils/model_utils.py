@@ -394,6 +394,7 @@ class ModelUtils:
         logger,
         checkpoint_type="epoch",
         save_full_model=True,
+        extra=None,
     ):
         """
         Save comprehensive training checkpoint with consistent formatting.
@@ -475,54 +476,66 @@ class ModelUtils:
             "args": vars(args) if hasattr(args, "__dict__") else args,
         }
 
+        # Merge the caller-supplied extras (site pools, norm stats, mode
+        # flags, per-epoch metrics). This is how the predictor finds
+        # everything it needs to rebuild the dataset and denormalise the
+        # output, without having to re-derive those fields.
+        if extra:
+            for k, v in extra.items():
+                if k in checkpoint_state:
+                    # Never let an extra clobber a core field.
+                    continue
+                checkpoint_state[k] = v
+
         # Determine filename based on checkpoint type
         prefix = getattr(args, "prefix", "run")
         save_checkpoint_name = getattr(args, "save_checkpoint_name", "model")
+        head = f"{prefix}_" if prefix else ""
 
         if checkpoint_type == "samples":
             checkpoint_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_epoch{epoch:04d}_samples{samples_processed}_{save_checkpoint_name}.pth.tar",
+                f"{head}epoch{epoch:04d}_samples{samples_processed}_{save_checkpoint_name}.pth.tar",
             )
             full_model_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_epoch{epoch:04d}_samples{samples_processed}_{save_checkpoint_name}_full.pth",
+                f"{head}epoch{epoch:04d}_samples{samples_processed}_{save_checkpoint_name}_full.pth",
             )
 
         elif checkpoint_type == "epoch":
             checkpoint_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_epoch{epoch:04d}_{save_checkpoint_name}.pth.tar",
+                f"{head}epoch{epoch:04d}_{save_checkpoint_name}.pth.tar",
             )
             full_model_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_epoch{epoch:04d}_{save_checkpoint_name}_full.pth",
+                f"{head}epoch{epoch:04d}_{save_checkpoint_name}_full.pth",
             )
 
         elif checkpoint_type == "best":
             checkpoint_filename = os.path.join(
-                paths.checkpoints, f"{prefix}_best_model.pth.tar"
+                paths.checkpoints, f"{head}best_model.pth.tar"
             )
             full_model_filename = os.path.join(
-                paths.checkpoints, f"{prefix}_best_model_full.pth"
+                paths.checkpoints, f"{head}best_model_full.pth"
             )
 
         elif checkpoint_type == "final":
             num_epochs = getattr(args, "num_epochs", epoch + 1)
             checkpoint_filename = os.path.join(
-                paths.checkpoints, f"{prefix}_final_model_epoch{num_epochs}.pth.tar"
+                paths.checkpoints, f"{head}final_model_epoch{num_epochs}.pth.tar"
             )
             full_model_filename = os.path.join(
-                paths.checkpoints, f"{prefix}_final_model_epoch{num_epochs}_full.pth"
+                paths.checkpoints, f"{head}final_model_epoch{num_epochs}_full.pth"
             )
         elif checkpoint_type.startswith("emergency"):
             checkpoint_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_{checkpoint_type}_{save_checkpoint_name}.pth.tar",
+                f"{head}{checkpoint_type}_{save_checkpoint_name}.pth.tar",
             )
             full_model_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_{checkpoint_type}_{save_checkpoint_name}_full.pth",
+                f"{head}{checkpoint_type}_{save_checkpoint_name}_full.pth",
             )
 
         else:
@@ -532,11 +545,11 @@ class ModelUtils:
                 )
             checkpoint_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_epoch{epoch:04d}_{save_checkpoint_name}.pth.tar",
+                f"{head}epoch{epoch:04d}_{save_checkpoint_name}.pth.tar",
             )
             full_model_filename = os.path.join(
                 paths.checkpoints,
-                f"{prefix}_epoch{epoch:04d}_{save_checkpoint_name}_full.pth",
+                f"{head}epoch{epoch:04d}_{save_checkpoint_name}_full.pth",
             )
 
         # Save checkpoint using existing method
