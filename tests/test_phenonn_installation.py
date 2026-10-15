@@ -93,7 +93,6 @@ PHENONN_MODULES = [
 ]
 
 PHENONN_PUBLIC_NAMES = [
-    "LAIDataset",
     "RamLAIDataset",
     "RNN_LSTM",
     "AELSTM",
