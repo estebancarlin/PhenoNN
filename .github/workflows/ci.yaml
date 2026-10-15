@@ -40,7 +40,6 @@ jobs:
           python -m tests.test_phenonn_installation
           python -m unittest tests.test_transformer
           python -m unittest tests.test_rnn
-          python -m unittest tests.test_fcn
           python -m unittest tests.test_utils
           python -m unittest tests.test_model_utils
           python -m unittest tests.test_transformerbis

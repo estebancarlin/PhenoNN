@@ -654,6 +654,8 @@ class CausalSparseTransformer(nn.Module):
 
     Architecture
     ------------
+    ::
+
         (B, C_in, L)
             │ Conv1d(k=3, padding=1, replicate)        ← local 3-day context
             ▼

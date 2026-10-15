@@ -299,8 +299,6 @@ PhenoNN/
 │   │   ├── bitransformer.py          # BiTransformerV2
 │   │   ├── transformer.py            # EncoderTorch, CausalSparseTransformer
 │   │   ├── attn_lstm.py              # AttnLSTM
-│   │   ├── fcn.py                    # FCN
-│   │   ├── linear_baseline.py        # LinearBaseline, PerDayLinearBaseline
 │   │   └── transformerbis.py         # legacy BiTransformer (not exported)
 │   ├── training/
 │   │   └── train_full_ram.py         # main, load_shared, train_one_config

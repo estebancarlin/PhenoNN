@@ -10,23 +10,24 @@ Both end up with the same output shape so the rest of the pipeline (loss,
 train loop, validation) is identical regardless of the mixing mode.
 """
 
-import torch.nn as nn
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from phenonn.utils.config import FEATURE_CHANNELS, N_PFT, PFT_START
-from phenonn.models.rnn import RNN_LSTM, RNN_GRU
-from phenonn.models.transformer import EncoderTorch, CausalSparseTransformer
-from phenonn.models.transformerbis import BiTransformer
-from phenonn.models.bitransformer import BiTransformerV2
-from phenonn.models.attn_lstm import AttnLSTM
-from phenonn.models.aelstm import AELSTM
-from phenonn.models.fcn import FCN
-from phenonn.models.linear_baseline import LinearBaseline, PerDayLinearBaseline
-from phenonn.utils.wrappers import (
-    DailyWrapper,
-    Every10DaysWrapper,
-    PFTMixingWrapper,
-    permuteWrapper,
-)
+
+if TYPE_CHECKING:
+    import torch.nn as nn
+
+# Retired model types (removed from the package): fcn/fullyconnected,
+# linear, linear_perday. Kept types: lstm, gru, transformer,
+# transformer_dec, aelstm, bitransformer, bitransformer_v2, attnlstm.
+_RETIRED_TYPES = {
+    "fcn",
+    "fullyconnected",
+    "linear",
+    "linear_perday",
+}
 
 
 def _resolve_d_model(args) -> int:
@@ -81,13 +82,25 @@ def build_model(args) -> nn.Module:
     """
     t = args.type.lower()
 
-    if t == "linear":
-        return LinearBaseline(
-            feature_channel=FEATURE_CHANNELS,
-            seq_length=args.seq_length,
+    if t in _RETIRED_TYPES:
+        raise ValueError(
+            f"Model type {args.type!r} was retired and is no longer "
+            "supported. Kept types: lstm, gru, transformer, "
+            "transformer_dec, aelstm, bitransformer, bitransformer_v2, "
+            "attnlstm."
         )
-    if t == "linear_perday":
-        return PerDayLinearBaseline(feature_channel=FEATURE_CHANNELS)
+
+    from phenonn.models.rnn import RNN_LSTM, RNN_GRU
+    from phenonn.models.transformer import EncoderTorch, CausalSparseTransformer
+    from phenonn.models.transformerbis import BiTransformer
+    from phenonn.models.bitransformer import BiTransformerV2
+    from phenonn.models.attn_lstm import AttnLSTM
+    from phenonn.models.aelstm import AELSTM
+    from phenonn.utils.wrappers import (
+        DailyWrapper,
+        Every10DaysWrapper,
+        permuteWrapper,
+    )
 
     if t == "lstm":
         base = RNN_LSTM(
@@ -196,15 +209,6 @@ def build_model(args) -> nn.Module:
                 causal=True,
             )
         )
-    elif t in ("fcn", "fullyconnected"):
-        base = FCN(
-            feature_channel=FEATURE_CHANNELS,
-            output_channel=1,
-            num_layers=args.num_layers,
-            hidden_size=args.hidden_size,
-            seq_length=args.seq_length,
-            dim_expand=0,
-        )
     else:
         raise ValueError(f"Unsupported model type: {args.type}")
 
@@ -229,6 +233,23 @@ def build_model_pft(args, norm_stats) -> nn.Module:
     """
     t = args.type.lower()
     meteo_only = bool(getattr(args, "pft_meteo_only", False))
+
+    if t in _RETIRED_TYPES:
+        raise ValueError(
+            f"Model type {args.type!r} was retired and is no longer "
+            "supported. Kept types: lstm, gru, transformer, "
+            "transformer_dec, aelstm, bitransformer, bitransformer_v2, "
+            "attnlstm."
+        )
+
+    from phenonn.models.rnn import RNN_LSTM, RNN_GRU
+    from phenonn.models.transformer import EncoderTorch, CausalSparseTransformer
+    from phenonn.models.transformerbis import BiTransformer
+    from phenonn.models.bitransformer import BiTransformerV2
+    from phenonn.models.attn_lstm import AttnLSTM
+    from phenonn.models.aelstm import AELSTM
+    from phenonn.utils.wrappers import PFTMixingWrapper, permuteWrapper
+
     nonneg = bool(getattr(args, "pft_nonneg", False))
     base_channels = PFT_START if meteo_only else FEATURE_CHANNELS
     n_pft_in = 0 if meteo_only else N_PFT  # trailing PFT channels the base sees
