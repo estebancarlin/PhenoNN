@@ -48,6 +48,14 @@ dependencies = [
 [tool.hatch.version]
 path = "phenonn/version.py"
 
+# FIX: keep local-only symlinks (pixelset1, runs) and bulk data out of the sdist
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "pixelset1",
+  "runs",
+  "data",
+]
+
 # FIX: Scripts entry points - must be strings in format "command = module:function"
 [project.scripts]
 phenonn = "phenonn.cli:main"
