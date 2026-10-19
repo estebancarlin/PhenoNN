@@ -19,17 +19,18 @@ Data come from the *pixelset* files (same as training), read via RamLAIDataset.
 
 Usage
 -----
-    python -m prediction.pft_curves \\
-        --checkpoint runs/Base1/checkpoints/best_model.pth \\
-        --features_dir /data/sbarbu/PhenoNN/data/era5_10% \\
-        --target_dir   /data/sbarbu/PhenoNN/data/pixelset_10%/LAI_pixelset \\
-        --pft_dir      /data/sbarbu/PhenoNN/data/pixelset_10%/PFT_pixelset \\
-        --n_sites 6 --year 2005 \\
-        --output runs/Base1/pft_curves.png
+    python analysis/diagnostics/pft_curves.py \\
+        --checkpoint runs/smoke/smoke_lstm/checkpoints/best_model.pth \\
+        --features_dir "$DATA/era5_pixelset" \\
+        --target_dir   "$DATA/LAI_pixelset" \\
+        --pft_dir      "$DATA/PFT_pixelset" \\
+        --parent_map   "$DATA/selected_pixels01_1.nc" \\
+        --n_sites 2 --year 2002 \\
+        --output runs/pft_curves.png
 
     # explicit sites, or a selected_pixels*.nc subset:
     #   --sites pix_0176_00563,pix_0177_02847
-    #   --selected_pixels /data/.../selected_pixels_PFT9.nc
+    #   --selected_pixels "$DATA/selected_pixels005_1.nc"
 """
 
 import argparse

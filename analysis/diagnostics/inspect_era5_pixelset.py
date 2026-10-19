@@ -8,8 +8,8 @@ Quick health-check of the ERA5 pixelset files feeding pft_diagnostics.py.
 Reports, for the year range (optionally restricted to a selected_pixels subset):
 
   * the `time` dimension length of each year — this exposes the 365-vs-366
-    mismatch that makes the seasonal plot drop years (only the years whose
-    length matches the FIRST file are kept in features_seasonal.png).
+    mismatch. `pft_diagnostics.py` aligns both onto a fixed 366-day grid, so
+    mixed lengths are expected but worth checking.
   * per year : number of cells, total values, NaN count and NaN %.
   * per feature (pooled over all years) : total values, NaN count and NaN %.
 
@@ -17,12 +17,13 @@ Read-only, torch-free, scipy-free.
 
 Usage
 -----
-    python -m plot_diagnositcs.inspect_era5_pixelset \\
-        --era5_dir /data/sbarbu/PhenoNN/data/pixelset_10%_1992_2019/era5_1992_2019 \\
-        --year_start 1992 --year_end 2018 \\
-        [--selected_pixels .../selected_pixels_10%_PFT1.nc] \\
+    python analysis/diagnostics/inspect_era5_pixelset.py \\
+        --era5_dir "$DATA/era5_pixelset" \\
+        --year_start 2000 --year_end 2001 \\
+        --selected_pixels "$DATA/selected_pixels005_1.nc" \\
+        --parent_map "$DATA/selected_pixels01_1.nc" \\
         [--features Tmin,tp_sum] \\
-        [--output_csv diag_plots/era5_missing.csv]
+        [--output_csv runs/era5_missing.csv]
 """
 
 import argparse
@@ -172,9 +173,9 @@ def main():
         modal = time_lengths.most_common(1)[0][0]
         odd = [y for (y, nt, *_) in per_year if nt != modal]
         print(
-            f"  → mixed lengths! modal={modal}; "
-            f"seasonal plot keeps only the length of the FIRST year "
-            f"({per_year[0][1]} days). Off-length years: {odd}"
+            f"  → mixed lengths! modal={modal}; pft_diagnostics aligns "
+            f"365/366-day years on a fixed 366-day grid. "
+            f"Off-length years: {odd}"
         )
 
     print("\n=== NaN per feature (all years pooled) ===")

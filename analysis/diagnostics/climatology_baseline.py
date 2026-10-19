@@ -47,13 +47,12 @@ Output
 
 Usage
 -----
-    cd LAI/
-    python -m prediction.climatology_baseline \\
+    python analysis/diagnostics/climatology_baseline.py \\
         --predictions runs/exp_flat/predictions_flat.csv \\
         --output      runs/exp_flat/clim_baseline
 
     # use pooled climatology (faster, slightly favours the baseline):
-    python -m prediction.climatology_baseline \\
+    python analysis/diagnostics/climatology_baseline.py \\
         --predictions runs/exp_flat/predictions_flat.csv \\
         --pooled
 """
@@ -123,7 +122,7 @@ def parse_args():
     p.add_argument(
         "--clim_target_dir",
         default="",
-        help="Folder containing target_{year}.csv files for the "
+        help="Folder containing LAI_dekadal_{year}.nc cubes for the "
         "climatology reference period. Use when --clim_years "
         "are outside the predictions CSV (typical: historical "
         "clim vs. future evaluation). The script loads "

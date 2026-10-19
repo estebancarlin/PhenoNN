@@ -7,7 +7,7 @@ Per-PFT diagnostics from a `selected_pixels_PFT{k}.nc` subset (the output of
 `phenonn.data_creation.filter_pixels_by_pft`, i.e. the cells dominated by one PFT).
 
 Reads the LAI and ERA5 pixelset datasets — indexed by `site_id`, so the subset
-needs no re-extraction — and produces three figures:
+needs no re-extraction — and produces four figures:
 
   1. lai_seasonal.png
         Mean dekadal LAI curve across the selected cells, with a ±1 std band
@@ -44,15 +44,13 @@ Torch-free and scipy-free; read-only (no NetCDF write, so no subprocess needed).
 
 Usage
 -----
-    python -m plot_diagnositcs.pft_diagnostics \
-        --selected_pixels /data/sbarbu/PhenoNN/data/selected_pixels_10%_PFT/selected_pixels_10%_PFT_0.95/selected_pixels_10%_PFT1 \
-        --era5_dir        /data/sbarbu/PhenoNN/data/pixelset_10%_1992_2019/era5_1992_2019 \
-        --target_dir      /data/sbarbu/PhenoNN/data/pixelset_10%_1992_2019/LAI_pixelset  \
-        --year_start 1992 --year_end 2018 \
-        --output_dir diag_plots/PFT1/
-
-          \
-  --target_dir        \
+    python analysis/diagnostics/pft_diagnostics.py \\
+        --selected_pixels "$DATA/greedy_PFT_10000_0.1/selected_pixels_PFT10.nc" \\
+        --era5_dir        "$DATA/era5_pixelset" \\
+        --target_dir      "$DATA/LAI_pixelset" \\
+        --parent_map      "$DATA/selected_pixels01_1.nc" \\
+        --year_start 2000 --year_end 2001 \\
+        --output_dir      runs/pft_diag_out
 """
 
 import argparse

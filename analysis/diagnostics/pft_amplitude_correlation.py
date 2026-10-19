@@ -41,10 +41,10 @@ case (b).
 
 Usage
 -----
-    python -m plot_diagnositcs.pft_amplitude_correlation \\
-        --predictions runs_final/exp/predictions.csv \\
-        --pft_dir     /data/sbarbu/pft \\
-        --output_dir  runs/pft_diag
+    python analysis/diagnostics/pft_amplitude_correlation.py \\
+        --predictions runs/smoke_pred.csv \\
+        --pft_dir     "$DATA/PFT_pixelset" \\
+        --output_dir  runs/pft_amp_out
 """
 
 import argparse

@@ -16,11 +16,11 @@ NaN (never silently mismatched).
 
 Usage
 -----
-    python -m plot_diagnositcs.print_lai_pft_sites \\
-        --target_dir /data/.../targets \\
-        --pft_dir    /data/.../pft \\
-        --years      2000-2018 \\
-        --sites      pix_0123_04567,pix_0088_01200,pix_0140_00999
+    python analysis/diagnostics/print_lai_pft_sites.py \\
+        --target_dir "$DATA/LAI_pixelset" \\
+        --pft_dir    "$DATA/PFT_pixelset" \\
+        --years      2000-2001 \\
+        --sites      pix_0351_01105,pix_0351_01120
 """
 
 import argparse

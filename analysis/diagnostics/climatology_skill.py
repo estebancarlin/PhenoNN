@@ -23,11 +23,13 @@ Metrics (same definitions as phenonn.prediction.predict):
 Run it as a PLAIN SCRIPT (not `python -m phenonn…`): importing the package would
 execute phenonn/__init__.py, which imports torch.
 
-    python analysis/climatology_skill.py \\
-        --target_dir     $DATA/LAI_pixelset \\
-        --selected_pixels $DATA/selected_pixels005_balanced.nc \\
+    python analysis/diagnostics/climatology_skill.py \\
+        --target_dir      "$DATA/LAI_pixelset" \\
+        --selected_pixels "$DATA/selected_pixels005_1.nc" \\
         --clim_years 1992-2009 --eval_years 2010-2019 \\
-        --n_sites 20000 --output_dir runs/clim_skill
+        --n_sites 200 --output_dir runs/clim_skill
+
+Start with a small --n_sites (0 = all sites); the default 20000 is slow.
 """
 
 import argparse

@@ -18,9 +18,9 @@ with NO coastlines (a warning is printed).
 
 Usage
 -----
-    python -m prediction.spatial_plot_selected_pixels \\
-        --selected_pixels /data/sbarbu/PhenoNN/data/selected_pixels_10%.nc \\
-        --output spatial_selected_pixels.png
+    python analysis/diagnostics/spatial_plot_selected_pixels.py \\
+        --selected_pixels "$DATA/selected_pixels005_1.nc" \\
+        --output runs/spatial_selected_pixels.png
 """
 
 import argparse

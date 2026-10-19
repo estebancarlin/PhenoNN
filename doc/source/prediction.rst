@@ -231,8 +231,6 @@ Next steps
 ----------
 
 - :doc:`training` — how to produce the checkpoint the predictor reads.
-- ``phenonn/analysis/climatology_skill`` — the baseline every model must
-  beat.
-- ``phenonn/analysis/perturbation`` — re-run the model under a ceteris
-  paribus climate change.
+- ``analysis/diagnostics/climatology_skill.py`` — the baseline every model
+  must beat.
 - :doc:`api/modules` — full API reference.
