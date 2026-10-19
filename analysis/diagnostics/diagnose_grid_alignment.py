@@ -32,11 +32,11 @@ Read-only, torch-free, scipy-free.
 
 Usage
 -----
-    python -m plot_diagnositcs.diagnose_grid_alignment \\
-        --selected_pixels /data/.../selected_pixels_boxes13.nc \\
-        --era5_dir        /data/.../era5_pixelset13 \\
-        --year 2000 \\
-        [--era5_grid /bdd/ERA5-Land/NETCDF/GLOBAL_01/hourly/FC_SF/.../t2m.200001..nc] \\
+    python analysis/diagnostics/diagnose_grid_alignment.py \\
+        --selected_pixels "$DATA/selected_pixels005_1.nc" \\
+        --parent_map "$DATA/selected_pixels01_1.nc" \\
+        --era5_dir "$DATA/era5_pixelset" --year 2000 \\
+        [--era5_grid /path/to/raw/ERA5-Land/file.nc] \\
         [--max_report 20]
 """
 

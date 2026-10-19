@@ -7,13 +7,10 @@
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 """
-Post-training analyses for PhenoNN: diagnostics, baselines, ablations,
-perturbations and generalization studies.
+Post-training analyses for PhenoNN: diagnostics and baselines.
 
 Layout: ``analysis/diagnostics/`` holds standalone one-shot scripts
-(``python analysis/diagnostics/<script>.py``); each study directory holds
-a larger multi-step workflow runnable with
-``python -m analysis.<study>.<script>`` (see its README).
+(``python analysis/diagnostics/<script>.py``; see its README).
 
 Nothing is re-exported here — the scripts share entry-point names (main /
 parse_args) and pull heavy optional deps, so eager aggregation is avoided.

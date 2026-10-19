@@ -3,10 +3,9 @@
 diagnose_selected_pixels.py
 ===========================
 
-Combined spatial + PFT diagnostics for a `selected_pixels.nc`, merging what
-`spatial_plot_selected_pixels.py` (maps + coastlines) and
-`diagnose_selected_pixels_pft.py` (PFT composition, per-process HDF5 isolation)
-each did. PFT maps vary year to year, so the composition is the MEAN fraction
+Combined spatial + PFT diagnostics for a `selected_pixels.nc`, merging the
+maps + coastlines of `spatial_plot_selected_pixels.py` with PFT composition
+analysis. PFT maps vary year to year, so the composition is the MEAN fraction
 per cell over a whole DIRECTORY of yearly `PFTmap_{Y}.nc` on [year_start,
 year_end], joined to the sites by `site_id`.
 
@@ -54,11 +53,11 @@ process opens more than one .nc file:
 
 Usage
 -----
-    python analysis/diagnose_selected_pixels.py \\
-        --selected_pixels /data/.../selected_pixels_bis.nc \\
-        --pft_dir         /data/.../PFT_pixelset \\
-        --year_start 1992 --year_end 2019 \\
-        --output          analyses/selected_pixels_diag.png
+    python analysis/diagnostics/diagnose_selected_pixels.py \\
+        --selected_pixels "$DATA/selected_pixels005_1.nc" \\
+        --pft_dir         "$DATA/PFT_pixelset" \\
+        --year_start 2000 --year_end 2001 \\
+        --output          runs/selected_pixels_diag.png
 """
 
 import argparse
@@ -99,7 +98,7 @@ SITE_CHUNK = 200_000  # sites per slice for the final divide (tiny temporaries)
 
 def _pft_array(dp):
     """Return (pft_frac (n_pft, n_site), site_id or None) from a PFT pixelset.
-    Same detection as diagnose_selected_pixels_pft._pft_array."""
+    Detect the PFT layout used by the PFT pixelsets."""
     if "pft_frac" in dp.data_vars:
         da = dp["pft_frac"]
     elif "maxvegetfrac" in dp.data_vars:

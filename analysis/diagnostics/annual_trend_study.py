@@ -2,7 +2,7 @@
 """
 Annual phenological trend study from LAI predictions and/or observations.
 
-For each (site, year) curve, computes 5 metrics:
+For each (site, year) curve, computes seven metrics:
 
   LAI_tot   sum of the 36 dekadal LAI values
   SOS_10    Start Of Season — first DOY where LAI >= min + 0.10 · (max − min),
@@ -11,6 +11,8 @@ For each (site, year) curve, computes 5 metrics:
             considering only the falling phase (DOY >= argmax)
   SOS_25    same as SOS_10 with 25 % of amplitude
   EOS_25    same as EOS_10 with 25 % of amplitude
+  LOS_10    Length Of Season — EOS_10 − SOS_10
+  LOS_25    Length Of Season — EOS_25 − SOS_25
 
 For each metric, one PNG file is produced. The x-axis is year and each curve
 shows the median across the selected sites with a shaded inter-quartile (IQR)
@@ -27,8 +29,9 @@ Two mutually-compatible modes — pick whichever is most convenient:
             site_id, year, doy, lai_obs, lai_pred
         Both obs and pred curves appear in the plots.
 
-  --target_dir LAI/data/target_years
-        Reads raw target_{YYYY}.csv files. Obs-only mode (no pred curve).
+  --target_dir "$DATA/LAI_pixelset"
+        Reads LAI_dekadal_{YYYY}.nc cubes (legacy target_{YYYY}.csv also
+        supported). Obs-only mode (no pred curve).
 
 Site selection
 --------------
@@ -38,30 +41,30 @@ its output CSV already contains exactly the sites you want. Then feed that
 CSV to this script.
 
   --sites_mode all       (default)  use every site present in the input
-  --sites_mode random    random subsample of --n  --sites_mode explicit  use the comma-separated --sites list
-_sites sites
+  --sites_mode random    random subsample of --n_sites
+  --sites_mode explicit  use the comma-separated --sites list
 
 Usage
 -----
     # Validation set, obs + pred
-    python -m prediction.predict --predict_sites val \\
+    python -m phenonn.prediction.predict --predict_sites val \\
         --output_csv runs/exp/preds_val.csv
-    python -m util.annual_trend_study \\
+    python analysis/diagnostics/annual_trend_study.py \\
         --predictions runs/exp/preds_val.csv \\
         --output_dir  runs/exp/trends_val
 
     # Test set (overlap mode)
-    python -m prediction.predict --predict_sites test \\
+    python -m phenonn.prediction.predict --predict_sites test \\
         --output_csv runs/exp/preds_test.csv
-    python -m util.annual_trend_study \\
+    python analysis/diagnostics/annual_trend_study.py \\
         --predictions runs/exp/preds_test.csv \\
         --output_dir  runs/exp/trends_test
 
     # Obs-only baseline on a random subsample of the raw archive
-    python -m util.annual_trend_study \\
-        --target_dir LAI/data/target_years \\
+    python analysis/diagnostics/annual_trend_study.py \\
+        --target_dir "$DATA/LAI_pixelset" \\
         --sites_mode random --n_sites 500 \\
-        --output_dir  runs/baseline_trends
+        --output_dir runs/baseline_trends
 """
 
 import argparse
@@ -91,7 +94,8 @@ def parse_args():
     p.add_argument(
         "--target_dir",
         default="",
-        help="Folder of target_{Y}.csv (obs-only mode if " "--predictions is empty).",
+        help="Folder of LAI_dekadal_{Y}.nc (obs-only mode if "
+        "--predictions is empty; legacy target_{Y}.csv also supported).",
     )
     p.add_argument(
         "--sites_mode",
