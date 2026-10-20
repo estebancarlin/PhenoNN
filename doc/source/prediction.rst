@@ -77,7 +77,7 @@ Ablation replay
 ---------------
 
 If the model was trained with
-:mod:`phenonn.analysis.feature_ablation`, the ablated channels are read
+``analysis/feature_ablation``, the ablated channels are read
 from the checkpoint and zeroed again at inference, so the model sees
 exactly the input it saw during training. Use ``--ablate_features`` to
 force a different list when the checkpoint predates that bookkeeping.
@@ -149,14 +149,14 @@ Examples
 Predict on validation sites and years::
 
     python -m phenonn.prediction.predict \
-        --checkpoint runs/my_run/checkpoints/best_model.pth \
+        --checkpoint runs/my_run/checkpoints/run_best_model.pth.tar \
         --predict_sites val \
         --output_csv runs/my_run/predictions.csv
 
 Predict on a specific site pool, specific years::
 
     python -m phenonn.prediction.predict \
-        --checkpoint runs/my_run/checkpoints/best_model.pth \
+        --checkpoint runs/my_run/checkpoints/run_best_model.pth.tar \
         --selected_pixels /path/to/selected_pixels_PFT9.nc \
         --predict_years 2016-2018 \
         --n_predict_sites 5000 \
@@ -165,7 +165,7 @@ Predict on a specific site pool, specific years::
 Predict with per-year scatter plots and a small grid of curves::
 
     python -m phenonn.prediction.predict \
-        --checkpoint runs/my_run/checkpoints/best_model.pth \
+        --checkpoint runs/my_run/checkpoints/run_best_model.pth.tar \
         --predict_sites val \
         --scatter_years \
         --n_curves 100 \
@@ -181,7 +181,7 @@ site resolver:
 .. code-block:: python
 
     from phenonn.prediction.predict import (
-        parse_year_spec, _resolve_sites,
+        _parse_year_spec as parse_year_spec, _resolve_sites,
     )
 
     years = parse_year_spec("2015-2018")   # [2015, 2016, 2017, 2018]
@@ -201,14 +201,17 @@ resident dataset directly:
     from phenonn.data import RamLAIDataset
     from phenonn.utils.model_loader import build_model, build_model_pft
 
-    ckpt = torch.load("runs/my_run/checkpoints/best_model.pth",
+    ckpt = torch.load("runs/my_run/checkpoints/run_best_model.pth.tar",
                       map_location="cpu", weights_only=False)
     train_args = ckpt["args"]
 
     model = (build_model_pft if ckpt.get("pft_mixing") else build_model)(
         type("A", (), train_args), ckpt.get("norm_stats")
     )
-    model.load_state_dict(ckpt["model_state_dict"])
+    state = ckpt.get("state_dict")
+    if state is None:
+        state = ckpt["model_state_dict"]
+    model.load_state_dict(state)
     model.eval()
 
     ds = RamLAIDataset(

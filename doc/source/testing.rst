@@ -133,10 +133,15 @@ A minimal template::
 Continuous integration
 ----------------------
 
-Once the packaging step is complete, every push runs the same commands on
-GitHub Actions:
+Every push runs the installation checks and each unit test module explicitly on
+GitHub Actions. The installation checks are separate commands because discovery
+does not execute the script-style check in ``tests/test_phenonn_installation.py``.
 
-- ``python tests/test_phenonn_installation.py``
-- ``python -m unittest discover -s tests``
+For a local full run, discovery still works:
 
-The workflow file lives at ``.github/workflows/ci.yml``.
+.. code-block:: bash
+
+    python -m unittest discover -s tests
+
+The workflow file at ``.github/workflows/ci.yaml`` contains the authoritative
+list of commands used by CI.

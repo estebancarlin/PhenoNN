@@ -7,10 +7,14 @@
 # http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 """
-Post-training analyses for PhenoNN: diagnostics and baselines.
+Post-training analyses for PhenoNN: diagnostics and feature ablation.
 
-Layout: ``analysis/diagnostics/`` holds standalone one-shot scripts
-(``python analysis/diagnostics/<script>.py``; see its README).
+Sub-packages (all run as ``python -m analysis.<study>.<script>``):
+
+- ``diagnostics`` — one-shot data/model diagnostics and baseline CSVs.
+- ``feature_ablation`` — leave-one-feature-out and grouped channel ablations.
+
+``analysis/_checkpoint_utils`` holds the shared checkpoint helpers.
 
 Nothing is re-exported here — the scripts share entry-point names (main /
 parse_args) and pull heavy optional deps, so eager aggregation is avoided.

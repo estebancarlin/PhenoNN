@@ -25,9 +25,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ANALYSIS_PACKAGES = [
     "analysis",
     "analysis.diagnostics",
+    "analysis.feature_ablation",
 ]
 
 ANALYSIS_SCRIPTS = [
+    "analysis._checkpoint_utils",
     "analysis.diagnostics.annual_trend_study",
     "analysis.diagnostics.climatology_baseline",
     "analysis.diagnostics.climatology_skill",
@@ -39,6 +41,15 @@ ANALYSIS_SCRIPTS = [
     "analysis.diagnostics.pft_diagnostics",
     "analysis.diagnostics.print_lai_pft_sites",
     "analysis.diagnostics.spatial_plot_selected_pixels",
+    "analysis.feature_ablation._common",
+    "analysis.feature_ablation._hooks",
+    "analysis.feature_ablation._profiles",
+    "analysis.feature_ablation.aggregate",
+    "analysis.feature_ablation.gen_jobs",
+    "analysis.feature_ablation.run_ablate_combo_models",
+    "analysis.feature_ablation.run_ablate_inproc",
+    "analysis.feature_ablation.smoke",
+    "analysis.feature_ablation.train_ablate",
 ]
 
 # Only modules exposing parse_args; climatology_skill,
@@ -80,9 +91,10 @@ class TestAnalysisHelp(unittest.TestCase):
                 argv = sys.argv
                 sys.argv = [name, "--help"]
                 try:
-                    with redirect_stdout(io.StringIO()):
-                        with self.assertRaises(SystemExit) as ctx:
-                            module.parse_args()
+                    with redirect_stdout(io.StringIO()), self.assertRaises(
+                        SystemExit
+                    ) as ctx:
+                        module.parse_args()
                 finally:
                     sys.argv = argv
                 self.assertEqual(ctx.exception.code, 0)

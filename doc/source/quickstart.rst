@@ -44,8 +44,8 @@ On success you will see::
     ...
     Training complete. Best epoch=..., best_val_loss=...
     Checkpoint dir : runs/smoke/smoke_lstm/checkpoints
-    best_model.pth
-    last_model.pth
+    best_model.pth.tar
+    final_model_epoch2.pth.tar
 
 Train a model
 -------------
@@ -84,8 +84,9 @@ Key flags
 
 Outputs land in ``runs/<experiment>/``:
 
-- ``checkpoints/best_model.pth`` — best validation checkpoint
-- ``checkpoints/last_model.pth`` — last epoch
+- ``checkpoints/run_best_model.pth.tar`` — best validation checkpoint
+  (``best_model.pth.tar`` when trained with ``--prefix ""``)
+- ``checkpoints/run_final_model_epoch<N>.pth.tar`` — final checkpoint
 - ``logs/train.log`` — per-epoch metrics
 - ``loss_history.png`` / ``metric_history.png`` — training curves
 - ``config.json`` — the exact arguments used
@@ -97,7 +98,7 @@ The predictor loads a checkpoint, rebuilds the model, runs inference on
 the requested sites and years, and writes a CSV of predictions::
 
     python -m phenonn.prediction.predict \
-        --checkpoint runs/my_first_run/checkpoints/best_model.pth \
+        --checkpoint runs/my_first_run/checkpoints/run_best_model.pth.tar \
         --predict_sites val \
         --output_csv runs/my_first_run/predictions.csv
 

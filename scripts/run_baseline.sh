@@ -13,7 +13,7 @@
 # ------------
 #   smoke_train.sh  : tiny repro (minutes, 2 epochs, 8 sites, CPU).
 #   run_baseline.sh : small baseline (GPU-first, 10 epochs, 32 sites).
-#   jobs/ + phenonn/analysis/*/jobs/ : full SLURM / GPU runs.
+#   analysis/*/jobs/ : full SLURM / GPU runs.
 #
 # Usage
 # -----

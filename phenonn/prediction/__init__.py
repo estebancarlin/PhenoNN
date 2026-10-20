@@ -14,7 +14,7 @@ Public API
 - :func:`main`            — CLI entry point; invoked as
                              ``python -m phenonn.prediction.predict`` or via
                              ``phenonn predict``.
-- :func:`parse_year_spec` — parse ``"2010-2019"`` / ``"2010,2015"`` / ``"all"``
+- :func:`_parse_year_spec` — parse ``"2010-2019"`` / ``"2010,2015"`` / ``"all"``
                              into a list of years.
 - :func:`_resolve_sites`  — resolve the ``--predict_sites`` / ``--sites`` /
                              ``--selected_pixels`` CLI flags against a checkpoint

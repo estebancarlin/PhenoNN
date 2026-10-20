@@ -92,9 +92,8 @@ Two ways of using them:
   for the pixel-set pipeline and matches the additive interpretation of
   mixed pixels.
 - **Without** ``--pft_mixing`` — the model receives the PFT fractions as
-  input channels and predicts the cell-level LAI directly. Simpler, and
-  tested by the PFT-linearity study in
-  :mod:`phenonn.analysis.pft_linearity`.
+  input channels and predicts the cell-level LAI directly. Simpler, but the
+  model must learn the mixing relation from data.
 
 Feature sets
 ------------
@@ -157,7 +156,7 @@ Each epoch:
 4. Validate on a disjoint site pool or on disjoint years, depending on
    the overlap mode.
 5. Step the learning-rate scheduler and, if the validation loss
-   improved, write ``best_model.pth``.
+   improved, write ``run_best_model.pth.tar`` (or ``best_model.pth.tar`` with ``--prefix ""``).
 
 Early stopping, checkpoint snapshots and diagnostic plots are built in.
 
