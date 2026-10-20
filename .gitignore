@@ -185,14 +185,15 @@ slurm_io/*
 
 results/*
 !results/.gitkeep
-# Data
+# Data / local links
 data/samples_*.nc
 data/e5.*.nc
 data/*
+pixelset1
 
 gcc_pred_*
 
 uv.lock
 
-PhenoNN Cleanup & Packaging \342\200\224 6-Week Work Plan.md
-/PhenoNN Cleanup & Packaging \342\200\224 6-Week Work Plan.md
+PhenoNN Cleanup*.md
+/PhenoNN Cleanup*.md

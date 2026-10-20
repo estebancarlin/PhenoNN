@@ -54,6 +54,7 @@ exclude = [
   "pixelset1",
   "runs",
   "data",
+  "PhenoNN Cleanup*.md",
 ]
 
 # FIX: Scripts entry points - must be strings in format "command = module:function"

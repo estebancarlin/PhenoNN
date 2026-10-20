@@ -244,7 +244,7 @@ Output and resume
    * - ``--seed``
      - Reproducibility seed.
    * - ``--resume``
-     - Path to ``last_model.pth`` from a previous run.
+     - Path to a ``.pth.tar`` checkpoint from a previous run.
 
 Loss penalties
 --------------
@@ -268,14 +268,17 @@ Outputs
 For an experiment ``my_run``, the trainer writes under
 ``<output_dir>/my_run/``:
 
-- ``checkpoints/best_model.pth`` -- best validation checkpoint
-- ``checkpoints/last_model.pth`` -- last epoch
+- ``checkpoints/run_best_model.pth.tar`` -- best validation checkpoint
+  (the ``run`` prefix is the default ``--prefix``; pass ``--prefix ""`` for
+  ``best_model.pth.tar``)
+- ``checkpoints/run_final_model_epoch<N>.pth.tar`` -- final checkpoint
 - ``logs/train.log`` -- per-epoch metrics
 - ``loss_history.png``, ``metric_history.png`` -- training curves
 - ``config.json`` -- the exact arguments used
 
-The checkpoint is a dictionary with ``model_state_dict``,
-``optimizer_state_dict``, ``scheduler_state_dict``, the training
+The checkpoint is a dictionary with ``state_dict`` (legacy files may use
+``model_state_dict``), ``optimizer_state_dict``, ``scheduler_state_dict``,
+the training
 arguments, the feature normalisation statistics, the CO2 lookup, the
 site pools, and the current validation metrics. The predictor loads
 everything it needs from it.
@@ -329,17 +332,12 @@ re-reading the same data for each configuration.
 
 .. code-block:: python
 
-    import torch
     from phenonn.training.train_full_ram import (
-        load_shared, train_one_config, parse_args,
+        load_shared, parse_args, setup_device_and_seed,
+        setup_directories_and_logging, train_one_config,
     )
-    from phenonn.utils.logger import Logger
 
-    logger = Logger(console_output=True, file_output=True,
-                    log_file="train.log")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # 1. Load the working set once -- expensive.
+    # 1. Prepare directories, logger, device, then load the working set once.
     cli_args = parse_args([
         "--features_dir", ".../era5_pixelset",
         "--target_dir",   ".../LAI_pixelset",
@@ -351,22 +349,23 @@ re-reading the same data for each configuration.
         "--num_epochs", "30",
         "--output_dir", "runs", "--experiment", "api_demo",
     ])
+    paths, logger = setup_directories_and_logging(cli_args)
+    device = setup_device_and_seed(cli_args, logger)
     shared = load_shared(cli_args, logger, device)
 
     # 2. Train one config -- cheap.
-    train_one_config(cli_args, shared, logger)
+    train_one_config(cli_args, shared, logger, paths)
 
-    # 3. Train another config, same resident data.
+    # 3. Train another config, same resident data (new experiment/log dirs).
     cli_args.hidden_size = 256
     cli_args.experiment = "api_demo_h256"
-    train_one_config(cli_args, shared, logger)
+    paths, logger = setup_directories_and_logging(cli_args)
+    train_one_config(cli_args, shared, logger, paths)
 
 Next steps
 ----------
 
 - :doc:`prediction` -- inference on the checkpoint you just produced.
 - :doc:`api/modules` -- full API reference for ``train_full_ram``.
-- ``phenonn/analysis/feature_ablation`` -- measure which input channels
+- ``analysis/feature_ablation`` -- measure which input channels
   the trained model actually relies on.
-- ``phenonn/analysis/year_generalization`` -- evaluate on chronologically
-  held-out years.

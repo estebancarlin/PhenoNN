@@ -66,9 +66,8 @@ ecosystems in climate models, with four research directions:
 - **Causal masking** — transformer and LSTM variants can be made
   strictly causal so that no future weather leaks into earlier
   predictions.
-- **Post-training analysis** — feature ablation, climate perturbation
-  scenarios, PFT diagnostics, climatology baselines, sensitivity
-  probes.
+- **Post-training analysis** — feature ablation and climatology/
+  diagnostic baselines.
 - **GPU acceleration** — CUDA support, optional bfloat16 autocast.
 
 ---
@@ -145,7 +144,7 @@ Checkpoints and logs land in `runs/my_run/checkpoints/` and
 
 ```bash
 python -m phenonn.prediction.predict \
-    --checkpoint runs/my_run/checkpoints/best_model.pth \
+    --checkpoint runs/my_run/checkpoints/run_best_model.pth.tar \
     --predict_sites val \
     --output_csv runs/my_run/predictions.csv
 ```
@@ -217,8 +216,8 @@ Both are thin wrappers around the `python -m` entry points:
 - `phenonn predict` → `python -m phenonn.prediction.predict`
 
 For the full list of flags, run `phenonn train --help` or
-`phenonn predict --help`. The SLURM scripts under `jobs/` and
-`phenonn/analysis/*/jobs/` use the same two entry points.
+`phenonn predict --help`. The SLURM scripts under `analysis/*/jobs/` use
+the same two entry points.
 
 ---
 
@@ -303,7 +302,7 @@ PhenoNN/
 │   ├── training/
 │   │   └── train_full_ram.py         # main, load_shared, train_one_config
 │   ├── prediction/
-│   │   └── predict.py                # main, parse_year_spec, _resolve_sites
+│   │   └── predict.py                # main, _parse_year_spec, _resolve_sites
 │   ├── utils/
 │   │   ├── config.py                 # FEATURES, PFT, dekad constants
 │   │   ├── wrappers.py               # DailyWrapper, Every10DaysWrapper,
@@ -314,21 +313,15 @@ PhenoNN/
 │   │   ├── logger.py                 # rich-based Logger
 │   │   ├── model_utils.py            # ModelUtils (checkpoint helpers)
 │   │   └── utils.py                  # EasyDict, FileUtils
-│   └── analysis/
-│       ├── perturbation/             # drought, heatwave, warming_co2, frost
-│       ├── feature_ablation/         # leave-one-group-out ablation
-│       ├── year_generalization/      # year-split study
-│       ├── pft_linearity/            # is the model linear in PFT fractions?
-│       ├── baselines/                # climatology, per-pixel
-│       ├── introspection/            # stress sensitivity, per-PFT curves
-│       └── spatial/                  # selected-pixels diagnostics
+├── analysis/                         # post-training studies (not packaged)
+│   ├── _checkpoint_utils.py          # state_dict / best-checkpoint helpers
+│   ├── diagnostics/                  # one-shot data/model diagnostics
+│   └── feature_ablation/             # leave-one-feature-out ablation
 ├── tests/                            # unit tests (unittest)
 ├── scripts/                          # hand-run diagnostics and smoke tests
-├── jobs/                             # SLURM job scripts
 ├── legacy/                           # archived modules (removed 2027-01)
-├── docs/                             # Sphinx documentation
+├── doc/                              # Sphinx documentation
 ├── pyproject.toml
-├── uv.lock
 └── README.md
 ```
 
@@ -372,7 +365,7 @@ Full documentation is at
 Build the documentation locally:
 
 ```bash
-cd docs
+cd doc
 uv pip install -e ".[docs]"
 make clean
 make html
@@ -390,7 +383,7 @@ uv pip install -e ".[dev,docs]"
 pre-commit install
 pre-commit run --all-files
 python -m unittest discover -s tests
-cd docs && make clean && make html
+cd doc && make clean && make html
 ```
 
 See the

@@ -42,8 +42,7 @@ dependency resolution.
     source .venv/bin/activate
     uv pip install -e .
 
-**Developer install** (adds pytest, pytest-cov, ruff, black, pydocstyle,
-pre-commit):
+**Developer install** (adds ruff and pre-commit):
 
 .. code-block:: bash
 
@@ -89,7 +88,8 @@ Development workflow
 Checks before pushing
 ---------------------
 
-Run all of these locally; the CI runs the same commands.
+Run these locally. CI runs the installation/test discovery and pre-commit
+checks; Read the Docs builds the documentation.
 
 .. code-block:: bash
 
@@ -99,17 +99,16 @@ Run all of these locally; the CI runs the same commands.
     # 2. Unit tests (standard-library unittest, no pytest needed).
     python -m unittest discover -s tests
 
-    # 3. Lint, format, and docstring convention.
-    #    `pre-commit` is configured to run ruff, black and pydocstyle
-    #    on every file. Install it once with `pre-commit install`, or
-    #    run it on demand:
+    # 3. Lint and format.
+    #    `pre-commit` runs ruff. Install it once with `pre-commit install`,
+    #    or run it on demand:
     pre-commit run --all-files
 
-    # 4. Documentation build, warnings treated as errors.
-    cd docs && make clean && make html
+    # 4. Documentation build; fix any warnings.
+    cd doc && make clean && make html
 
-Any failure must be fixed before the pull request is opened — CI will
-re-run the exact same commands and refuse the merge otherwise.
+Any failure must be fixed before the pull request is opened. CI runs the
+pre-commit and test steps, and Read the Docs builds the documentation.
 
 Coding conventions
 ------------------
@@ -174,7 +173,7 @@ The pattern is:
 2. Register it in ``phenonn/utils/model_loader.py`` in the
    ``build_model`` and ``build_model_pft`` dispatch tables.
 3. Add it to ``phenonn/models/__init__.py`` (import and ``__all__``).
-4. Document it in ``docs/source/api/phenonn.models.rst`` by adding an
+4. Document it in ``doc/source/api/phenonn.models.rst`` by adding an
    ``.. automodule:: phenonn.models.<arch>`` block.
 5. Add a case to
    ``tests/test_phenonn_installation.py::test_model_factory`` so a
@@ -182,16 +181,16 @@ The pattern is:
 
 If the architecture needs a new training flag, add it in
 ``train_full_ram.parse_args`` and document it in
-``docs/source/training.rst``.
+``doc/source/training.rst``.
 
 Adding a new analysis
 ---------------------
 
-Post-training studies go under ``phenonn/analysis/``. Each study is a
-directory with an ``__init__.py`` (docstring only, no imports) and one
-or more scripts. The scripts are runnable with ``python -m
-phenonn.analysis.<study>.<script>`` and are invoked from a SLURM job
-under ``phenonn/analysis/<study>/jobs/``.
+Post-training studies go under ``analysis/`` at the repository root. Each
+study is a directory with an ``__init__.py`` (docstring only, no imports)
+and one or more scripts. The scripts are runnable with ``python -m
+analysis.<study>.<script>`` and are invoked from a SLURM job under
+``analysis/<study>/jobs/``.
 
 Analysis code may import the training and prediction internals, but
 never modifies them.
@@ -199,23 +198,23 @@ never modifies them.
 Documentation
 -------------
 
-Documentation lives in ``docs/source/``. It is built with Sphinx and
+Documentation lives in ``doc/source/``. It is built with Sphinx and
 the NumPy docstring convention. The API reference is organised one
 ``.rst`` file per Python package, with every module of that package
 inlined as ``.. automodule::`` blocks.
 
 To build the docs locally::
 
-    cd docs
+    cd doc
     make clean
     make html
 
-The output lands in ``docs/build/html/``. Open
-``docs/build/html/index.html`` in a browser.
+The output lands in ``doc/build/html/``. Open
+``doc/build/html/index.html`` in a browser.
 
-Warnings are treated as errors in CI: the ``docs.yml`` workflow calls
-``make html`` inside ``docs/`` with ``SPHINXOPTS=-W``, so a pull request
-that adds a warning fails the docs job until it is fixed.
+Read the Docs builds the documentation from ``.readthedocs.yaml``. Run
+``make html`` locally and keep the build warning-free; documentation warnings
+are reviewed before merging.
 
 Pull request checklist
 ----------------------
@@ -226,12 +225,12 @@ Before opening the pull request, verify:
 - [ ] ``python tests/test_phenonn_installation.py`` passes.
 - [ ] ``python -m unittest discover -s tests`` passes.
 - [ ] ``pre-commit run --all-files`` reports no diff.
-- [ ] ``cd docs && make clean && make html`` succeeds with zero warnings.
+- [ ] ``cd doc && make clean && make html`` succeeds with zero warnings.
 - [ ] If the change touches the public API, the ``__all__`` lists and
       the Sphinx API pages are updated.
-- [ ] If the change touches a training flag, ``docs/source/training.rst``
+- [ ] If the change touches a training flag, ``doc/source/training.rst``
       lists it.
-- [ ] If the change touches a prediction flag, ``docs/source/prediction.rst``
+- [ ] If the change touches a prediction flag, ``doc/source/prediction.rst``
       lists it.
 - [ ] The pull request description states what changed and why, and
       mentions the tests you ran.

@@ -20,7 +20,7 @@ Data come from the *pixelset* files (same as training), read via RamLAIDataset.
 Usage
 -----
     python analysis/diagnostics/pft_curves.py \\
-        --checkpoint runs/smoke/smoke_lstm/checkpoints/best_model.pth \\
+        --checkpoint runs/smoke/smoke_lstm/checkpoints/best_model.pth.tar \\
         --features_dir "$DATA/era5_pixelset" \\
         --target_dir   "$DATA/LAI_pixelset" \\
         --pft_dir      "$DATA/PFT_pixelset" \\
@@ -44,6 +44,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+from analysis._checkpoint_utils import load_state_dict
 
 from phenonn.utils.config import N_PFT, PFT_NAMES
 from phenonn.data.lai_dataset import (
@@ -92,7 +94,7 @@ def parse_args():
     p.add_argument(
         "--checkpoint",
         required=True,
-        help="best_model.pth from a --pft_mixing training run.",
+        help="Best checkpoint from a --pft_mixing training run.",
     )
     p.add_argument(
         "--features_dir",
@@ -177,7 +179,7 @@ def main():
 
     # ── Rebuild model ──
     model = build_model_pft(train_args, norm_stats).to(device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    model.load_state_dict(load_state_dict(ckpt))
     model.eval()
 
     # ── Resolve data dirs (CLI > checkpoint args) ──

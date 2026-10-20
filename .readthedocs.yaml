@@ -28,7 +28,7 @@ python:
     - method: pip
       path: .
       extra_requirements:
-        - doc
+        - docs
     - requirements: doc/requirements.txt  # Optional: if you have a requirements file
 
 # Optional: Build your doc in additional formats such as PDF and ePub

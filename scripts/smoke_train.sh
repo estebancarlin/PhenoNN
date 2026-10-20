@@ -9,7 +9,7 @@
 # epochs, a few sites, a couple of years. Finishes in a few minutes.
 #
 # Not a replacement for the real training jobs: those are the SLURM
-# scripts under jobs/ and phenonn/analysis/*/jobs/.
+# scripts under analysis/*/jobs/.
 #
 # Usage
 # -----
