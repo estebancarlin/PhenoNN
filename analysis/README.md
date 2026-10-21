@@ -6,8 +6,8 @@ with `pip`.
 
 The scripts read pixelset files and checkpoints, and write outputs under
 `runs/`. A full study can take minutes to hours. CI only runs the fast import
-tests in `tests/test_analysis.py` and the feature-ablation tests in
-`tests/test_feature_ablation.py`.
+and command-line tests in `tests/test_analysis.py` and the feature-ablation
+tests in `tests/test_feature_ablation.py`.
 
 ## Before you start
 
@@ -69,7 +69,11 @@ The generated files are described in `diagnostics/README.md`.
 | Compare predictions with climatology or trends | [Prediction comparisons](diagnostics/README.md#prediction-comparisons) |
 | Plot per-PFT curves or skill | [PFT and model checks](diagnostics/README.md#pft-and-model-checks) |
 | Measure feature importance | [Feature ablation](feature_ablation/README.md) |
-| Submit cluster jobs | [Job wrappers](feature_ablation/jobs/README.md) |
+| Measure climate sensitivity | [Climate perturbation](perturbation/README.md) |
+| Test PFT linearity | [PFT linearity](pft_linearity/README.md) |
+| Compare year splits | [Year generalization](year_generalization/README.md) |
+| Read the memory-study plan | [Memory analysis](memory_analysis/README.md) |
+| Submit cluster jobs | [Feature-ablation jobs](feature_ablation/jobs/README.md), [perturbation jobs](perturbation/jobs/README.md), [year-split jobs](year_generalization/jobs/README.md) |
 
 ## Common data notes
 
@@ -116,6 +120,90 @@ python -m analysis.feature_ablation.aggregate --kind features \
 
 See `feature_ablation/README.md` for the full workflow, grouped and combo
 studies, and result interpretation.
+
+## Climate perturbation
+
+Climate perturbation re-runs a trained checkpoint with selected weather
+channels changed and reports the difference from the baseline prediction. Four
+scenarios are provided: drought, heatwave, warming plus CO2, and winter frost.
+
+```bash
+python -m analysis.perturbation.drought \
+    --checkpoint runs/<experiment>/checkpoints/run_best_model.pth.tar \
+    --features_dir "$DATA/era5_pixelset" \
+    --target_dir "$DATA/LAI_pixelset" \
+    --pft_dir "$DATA/PFT_pixelset" \
+    --parent_map "$DATA/selected_pixels01_1.nc" \
+    --predict_sites val --n_predict_sites 5000 \
+    --output_dir runs/perturbation/<experiment>
+```
+
+Aggregate all four scenarios after they finish:
+
+```bash
+python -m analysis.perturbation.aggregate_perturbation \
+    --output_dir runs/perturbation/<experiment>
+```
+
+See [perturbation/README.md](perturbation/README.md) for every scenario
+command, parameter defaults, output files, and interpretation. Cluster
+submission is documented in
+[perturbation/jobs/README.md](perturbation/jobs/README.md).
+
+## PFT linearity
+
+This check compares a no-mixing model's direct prediction with the weighted sum
+of pure-PFT predictions. It tests whether the model behaves linearly in the 15
+PFT fractions.
+
+```bash
+python -m analysis.pft_linearity.compare_mixing \
+    --checkpoint runs/<nomix_experiment>/checkpoints/run_best_model.pth.tar \
+    --features_dir "$DATA/era5_pixelset" \
+    --target_dir "$DATA/LAI_pixelset" \
+    --pft_dir "$DATA/PFT_pixelset" \
+    --parent_map "$DATA/selected_pixels01_1.nc" \
+    --predict_sites val --n_predict_sites 5000 \
+    --output_dir runs/pft_linearity/<nomix_experiment>
+```
+
+See [pft_linearity/README.md](pft_linearity/README.md) for the optional
+mixing-model comparison and the output summary.
+
+## Year generalization
+
+Year generalization trains the same model on different train and validation
+year splits. It covers a chronological split, four random splits, and a
+cold-to-hot split.
+
+```bash
+python -m analysis.year_generalization.rank_years_by_temp \
+    --features_dir "$DATA/era5_pixelset" \
+    --year_start 1992 --year_end 2019 \
+    --out year_temp_rank.json
+
+python -m analysis.year_generalization.run_year_split \
+    --split rand1 --all_years 1992-2019 \
+    --features_dir "$DATA/era5_pixelset" \
+    --target_dir "$DATA/LAI_pixelset" \
+    --pft_dir "$DATA/PFT_pixelset" \
+    --selected_pixels "$DATA/selected_pixels005_balanced.nc" \
+    --parent_map "$DATA/selected_pixels01_1.nc" \
+    --stats_path "$DATA/norm_stats_1992_2019.json" \
+    --co2_path "$DATA/CO2_1700_2023_TRENDYv2024.txt" \
+    --pft_mixing --pft_meteo_only
+```
+
+See [year_generalization/README.md](year_generalization/README.md) for the full
+fixed model configuration, split definitions, and job submission. Job details
+are in
+[year_generalization/jobs/README.md](year_generalization/jobs/README.md).
+
+## Memory analysis
+
+The memory study is design-only. It contains `PROTOCOL.md` and no runnable
+scripts yet. See [memory_analysis/README.md](memory_analysis/README.md) for the
+status and scope.
 
 ## Diagnostics
 
