@@ -6,13 +6,24 @@ installed `phenonn` package.
 Set the data directory before running them:
 
 ```bash
-cd /path/to/PhenoNN
+cd /home/ecarlin/PhenoNN
 source .venv/bin/activate
-export DATA=/path/to/pixelset1
+
+export DATA="$PWD/pixelset1"
+export RUNS="$PWD/runs"
+export RUNS_TARGET=/net/nfs/ssd1/ecarlin/phenonn/runs
+
+test -L "$RUNS" || { echo "runs/ is not a symlink; stop"; exit 1; }
+test "$(readlink -f "$RUNS")" = "$RUNS_TARGET" \
+    || { echo "runs/ points somewhere unexpected"; exit 1; }
+
+export DATA
+export RUNS
 ```
 
 If `$DATA` is not set, the scripts look for `<repo>/pixelset1` and then
-`<repo>/../pixelset1`.
+`<repo>/../pixelset1`. Keep `runs/` as a symlink to SSD-backed storage; the
+repository ignores the link itself.
 
 ## `smoke_train.sh`
 
@@ -27,7 +38,7 @@ bash scripts/smoke_train.sh
 Override the data path:
 
 ```bash
-DATA=/path/to/pixelset1 bash scripts/smoke_train.sh
+DATA="$PWD/pixelset1" bash scripts/smoke_train.sh
 ```
 
 Outputs go to `runs/smoke/smoke_lstm/`. The checkpoint is
@@ -45,8 +56,8 @@ bash scripts/run_baseline.sh
 Force a device:
 
 ```bash
-DEVICE=cpu DATA=/path/to/pixelset1 bash scripts/run_baseline.sh
-DEVICE=cuda DATA=/path/to/pixelset1 bash scripts/run_baseline.sh
+DEVICE=cpu DATA="$PWD/pixelset1" bash scripts/run_baseline.sh
+DEVICE=cuda DATA="$PWD/pixelset1" bash scripts/run_baseline.sh
 ```
 
 Outputs go to `runs/baseline/baseline_lstm/`.

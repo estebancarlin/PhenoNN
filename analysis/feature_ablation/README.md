@@ -27,15 +27,30 @@ environment, but the `python -m` commands below expect the virtual environment
 to be active.
 
 ```bash
-cd /path/to/PhenoNN
+cd /home/ecarlin/PhenoNN
 source .venv/bin/activate
-export DATA=/path/to/pixelset1
+
+export DATA="$PWD/pixelset1"
+export RUNS="$PWD/runs"
+export RUNS_TARGET=/net/nfs/ssd1/ecarlin/phenonn/runs
 export PHENONN_ROOT="$PWD"
 export PHENONN_SITE=hal
+export FA_ROOT="$RUNS/feature_ablation"
+export FA_SMOKE="$RUNS/feature_ablation_smoke"
+
+test -L "$RUNS" || { echo "runs/ is not a symlink; stop"; exit 1; }
+test "$(readlink -f "$RUNS")" = "$RUNS_TARGET" \
+    || { echo "runs/ points somewhere unexpected"; exit 1; }
+
+export DATA
+export RUNS
+export FA_ROOT
+export FA_SMOKE
 ```
 
 Use `PHENONN_SITE=leonardo` for Leonardo or `PHENONN_SITE=local` for a local
-run. The presets live in `analysis/_cluster.sh`.
+run. The presets live in `analysis/_cluster.sh`. HAL paper runs default to
+`SUBSET=0.25` and `PHENONN_MEM=120G`; override both when using larger nodes.
 
 ## Runnable scripts
 
@@ -58,11 +73,11 @@ bash scripts/smoke_feature_ablation.sh Tmean tp_sum
 Set the data path explicitly when `$DATA` is not exported:
 
 ```bash
-DATA=/path/to/pixelset1 bash scripts/smoke_feature_ablation.sh
+DATA="$PWD/pixelset1" bash scripts/smoke_feature_ablation.sh
 ```
 
-Outputs go to `runs/feature_ablation_smoke/`: the ablation checkpoints,
-`feature_ablation.csv`, and a plot.
+Outputs go to `$FA_SMOKE`: the ablation checkpoints, `feature_ablation.csv`,
+and a plot.
 
 ### `analysis.feature_ablation.smoke`
 
@@ -70,16 +85,16 @@ This is the Python driver behind the smoke shell script. It runs the same
 one-epoch, five-site sweep in one process.
 
 ```bash
-python -m analysis.feature_ablation.smoke --features Tmean,tp_sum
+.venv/bin/python -m analysis.feature_ablation.smoke --features Tmean,tp_sum
 ```
 
 Useful options:
 
 ```bash
-python -m analysis.feature_ablation.smoke \
+.venv/bin/python -m analysis.feature_ablation.smoke \
     --features Tmean,tp_sum \
     --data "$DATA" \
-    --output_dir runs/feature_ablation_smoke
+    --output_dir "$FA_SMOKE"
 ```
 
 The default features are `Tmean,tp_sum`. The default data path is `$DATA`, then
@@ -92,9 +107,9 @@ QoS, or memory directives; `analysis/_cluster.sh` adds those at submission
 time.
 
 ```bash
-python -m analysis.feature_ablation.gen_jobs \
-    --profile paper --study features
-bash runs/feature_ablation/jobs/submit_all.sh
+.venv/bin/python -m analysis.feature_ablation.gen_jobs \
+    --profile paper --study features --output_dir "$FA_ROOT"
+bash "$FA_ROOT/jobs/submit_all.sh"
 ```
 
 Choose another study with `--study`:
@@ -113,9 +128,11 @@ python -m analysis.feature_ablation.gen_jobs \
     --output_dir /tmp/fa_check
 ```
 
-Use `--features` to restrict the per-feature sweep, `--common_args` to replace
-training hyperparameters, and `--skip-baseline` for combo runs that reuse
-existing baselines. Dataset flags are always added automatically.
+Use `--features` to restrict the per-feature sweep, `--subset` to override the
+profile site subset, `--common_args` to replace training hyperparameters, and
+`--skip-baseline` for combo runs that reuse existing baselines. Dataset flags
+are always added automatically. `--subset` cannot be combined with
+`--common_args`; include the subset in the replacement arguments instead.
 
 ### `analysis/feature_ablation/jobs/submit_ablate.sh`
 
@@ -123,16 +140,19 @@ Generates the per-feature study and submits it. This is the normal entry point
 for a production feature or group sweep.
 
 ```bash
-bash analysis/feature_ablation/jobs/submit_ablate.sh
+OUTPUT_DIR="$FA_ROOT" PHENONN_SITE=hal \
+    bash analysis/feature_ablation/jobs/submit_ablate.sh --study features
 ```
 
 The default profile is `paper`: AELSTM, 18 training years, 10 validation years,
-and 300 epochs. It queues the baseline and 13 ablations.
+and 300 epochs. It queues the baseline and 13 ablations. On HAL the wrapper
+uses `SUBSET=0.25` and `PHENONN_MEM=120G` by default.
 
 Run the grouped sweep:
 
 ```bash
-STUDY=groups bash analysis/feature_ablation/jobs/submit_ablate.sh
+OUTPUT_DIR="$FA_ROOT" PHENONN_SITE=hal \
+    bash analysis/feature_ablation/jobs/submit_ablate.sh --study groups
 ```
 
 Run a local test:
@@ -145,8 +165,8 @@ PROFILE=smoke PHENONN_LOCAL=1 PHENONN_SITE=local \
 Write the jobs without submitting them:
 
 ```bash
-PHENONN_DRY_RUN=1 PHENONN_SITE=hal \
-  bash analysis/feature_ablation/jobs/submit_ablate.sh
+OUTPUT_DIR="$FA_ROOT" PHENONN_DRY_RUN=1 PHENONN_SITE=hal \
+  bash analysis/feature_ablation/jobs/submit_ablate.sh --study features
 ```
 
 Extra arguments are forwarded to `gen_jobs.py`.
@@ -157,13 +177,15 @@ Generates and submits the fixed model and size sweep. Each configuration gets a
 baseline and one ablation.
 
 ```bash
-bash analysis/feature_ablation/jobs/submit_combo.sh
+OUTPUT_DIR="$FA_ROOT" PHENONN_SITE=hal \
+    bash analysis/feature_ablation/jobs/submit_combo.sh
 ```
 
 Reuse existing baselines:
 
 ```bash
-bash analysis/feature_ablation/jobs/submit_combo.sh --skip-baseline
+OUTPUT_DIR="$FA_ROOT" PHENONN_SITE=hal \
+    bash analysis/feature_ablation/jobs/submit_combo.sh --skip-baseline
 ```
 
 Submit combo only after the feature or group jobs finish. On a single-GPU
@@ -181,22 +203,22 @@ stored ablation mask before including a run.
 Per-feature study:
 
 ```bash
-python -m analysis.feature_ablation.aggregate --kind features \
-    --runs_dir runs/feature_ablation
+.venv/bin/python -m analysis.feature_ablation.aggregate \
+    --kind features --runs_dir "$FA_ROOT"
 ```
 
 Grouped study:
 
 ```bash
-python -m analysis.feature_ablation.aggregate --kind groups --model aelstm \
-    --runs_dir runs/feature_ablation
+.venv/bin/python -m analysis.feature_ablation.aggregate \
+    --kind groups --model aelstm --runs_dir "$FA_ROOT"
 ```
 
 Combo study:
 
 ```bash
-python -m analysis.feature_ablation.aggregate --kind combo \
-    --runs_dir runs/feature_ablation
+.venv/bin/python -m analysis.feature_ablation.aggregate \
+    --kind combo --runs_dir "$FA_ROOT"
 ```
 
 Use `--output` to choose the plot path. The CSV is written next to it. Use
@@ -221,7 +243,7 @@ python -m analysis.feature_ablation.train_ablate \
     --type aelstm --pft_mixing --num_epochs 1 \
     --n_sites_per_epoch 5 --n_val_sites 5 \
     --ablate_feature Tmean --experiment abl_Tmean \
-    --output_dir runs/feature_ablation
+    --output_dir "$FA_ROOT"
 ```
 
 This command is a one-epoch test. Increase the years, sites, and epochs for a
@@ -248,7 +270,7 @@ python -m analysis.feature_ablation.run_ablate_inproc \
     --train_years 2008-2009 --val_years 2010 \
     --type lstm --pft_mixing --num_epochs 1 \
     --n_sites_per_epoch 5 --n_val_sites 5 \
-    --prefix "" --output_dir runs/feature_ablation
+    --prefix "" --output_dir "$FA_ROOT"
 ```
 
 For a grouped run, replace the mode and features:
@@ -266,7 +288,7 @@ python -m analysis.feature_ablation.run_ablate_inproc \
     --train_years 2008-2009 --val_years 2010 \
     --type aelstm --pft_mixing --num_epochs 1 \
     --n_sites_per_epoch 5 --n_val_sites 5 \
-    --prefix "" --output_dir runs/feature_ablation
+    --prefix "" --output_dir "$FA_ROOT"
 ```
 
 ### `analysis.feature_ablation.run_ablate_combo_models`
@@ -286,7 +308,7 @@ python -m analysis.feature_ablation.run_ablate_combo_models \
     --train_years 2008-2009 --val_years 2010 \
     --type lstm --pft_mixing --num_epochs 1 \
     --n_sites_per_epoch 5 --n_val_sites 5 \
-    --prefix "" --output_dir runs/feature_ablation
+    --prefix "" --output_dir "$FA_ROOT"
 ```
 
 Use the job wrappers for real runs. The commands above are short smoke
@@ -324,7 +346,7 @@ A healthy run logs the normalisation statistics and parent map:
 Check them before waiting for a long job:
 
 ```bash
-grep -E "Norm stats|Parent map" runs/feature_ablation/logs/baseline_*.out
+grep -E "Norm stats|Parent map" "$FA_ROOT"/logs/baseline_*.out
 ```
 
 ## Read the results

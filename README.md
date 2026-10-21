@@ -138,7 +138,8 @@ python -m phenonn.training.train_full_ram \
 ```
 
 Checkpoints and logs land in `runs/my_run/checkpoints/` and
-`runs/my_run/logs/`.
+`runs/my_run/logs/`. Keep `runs/` as a symlink to SSD-backed storage on the
+cluster; the repository ignores the link itself.
 
 ### Predict with a trained checkpoint
 
@@ -166,7 +167,7 @@ bash scripts/smoke_train.sh
 If your data is not in the default location:
 
 ```bash
-DATA=/path/to/pixelset1 bash scripts/smoke_train.sh
+DATA="$PWD/pixelset1" bash scripts/smoke_train.sh
 ```
 
 ---

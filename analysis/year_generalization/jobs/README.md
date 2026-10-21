@@ -14,25 +14,32 @@ when its run directory already contains `config.json`.
 
 ## Submit the study
 
-`coldhot` needs `year_temp_rank.json` in the repository root. Create it first:
+`coldhot` needs `runs/year_generalization/year_temp_rank.json`. Create it
+first:
 
 ```bash
-python -m analysis.year_generalization.rank_years_by_temp \
+export DATA="$PWD/pixelset1"
+export RUNS="$PWD/runs"
+export YEAR_ROOT="$RUNS/year_generalization"
+export RANK_JSON="$YEAR_ROOT/year_temp_rank.json"
+
+.venv/bin/python -m analysis.year_generalization.rank_years_by_temp \
     --features_dir "$DATA/era5_pixelset" \
     --year_start 1992 --year_end 2019 \
-    --out year_temp_rank.json
+    --out "$RANK_JSON"
 ```
 
 Then submit all splits:
 
 ```bash
+export TEMP_RANK_JSON="$RANK_JSON"
 export PHENONN_SITE=hal
-export DATA=/path/to/pixelset1
 bash analysis/year_generalization/jobs/submit_year_split.sh
 ```
 
+On HAL the wrapper defaults to `YEAR_SUBSET=0.25` and `PHENONN_MEM=120G`.
 Use `PHENONN_SITE=leonardo` for Leonardo or `PHENONN_SITE=local` for a local
-run.
+run. Override the subset with `YEAR_SUBSET=...` when using larger nodes.
 
 ## Change the year pool
 
@@ -70,6 +77,9 @@ prints the `bash` command instead of running it.
 
 - `DATA`: dataset root. The default is resolved by `_cluster.sh`.
 - `ALL_YEARS`: full year pool. The default is `1992-2019`.
+- `YEAR_SUBSET`: site subset. Defaults to `0.25` for HAL and `0.5` otherwise.
+- `TEMP_RANK_JSON`: year ranking JSON. The default is
+  `runs/year_generalization/year_temp_rank.json`.
 - `SPLIT`: split name for `run_year_split.sh`.
 - `PHENONN_ROOT`: repository root. The scripts set it automatically.
 - `PHENONN_VENV`: activation script. The default is `<repo>/.venv/bin/activate`.
@@ -83,5 +93,6 @@ prints the `bash` command instead of running it.
 ## Outputs
 
 Each split writes under `runs/year_generalization/yeargen_<split>/`, including
-the checkpoint, `config.json`, logs, and validation metrics. See the
+the checkpoint, `config.json`, and validation metrics. SLURM logs go to
+`runs/year_generalization/logs/`. See the
 [study guide](../README.md) for split definitions and result interpretation.

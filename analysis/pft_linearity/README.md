@@ -22,28 +22,46 @@ Run every command from the repository root after following
 [the analysis setup](../README.md#before-you-start).
 
 ```bash
-cd /path/to/PhenoNN
+cd /home/ecarlin/PhenoNN
 source .venv/bin/activate
-export DATA=/path/to/pixelset1
+
+export DATA="$PWD/pixelset1"
+export RUNS="$PWD/runs"
+export RUNS_TARGET=/net/nfs/ssd1/ecarlin/phenonn/runs
+
+test -L "$RUNS" || { echo "runs/ is not a symlink; stop"; exit 1; }
+test "$(readlink -f "$RUNS")" = "$RUNS_TARGET" \
+    || { echo "runs/ points somewhere unexpected"; exit 1; }
+
+export DATA
+export RUNS
 ```
 
 Use a checkpoint trained without `--pft_mixing`. The model must ingest the PFT
 fractions as ordinary input channels. A mixing checkpoint is accepted only as
 an optional comparison model, and the script warns that `mix == direct` by
-construction for that model.
+construction for that model. No non-mixing checkpoint exists in the current
+runs tree, so train one before running this study.
 
 ## Command
 
 ```bash
-python -m analysis.pft_linearity.compare_mixing \
-    --checkpoint runs/<nomix_experiment>/checkpoints/run_best_model.pth.tar \
+export NOMIX_EXP=nomix_aelstm
+export NOMIX_CKPT="$RUNS/$NOMIX_EXP/checkpoints/run_best_model.pth.tar"
+export PFT_OUT="$RUNS/pft_linearity/$NOMIX_EXP"
+
+test -f "$NOMIX_CKPT"
+grep -q '"pft_mixing": false' "$RUNS/$NOMIX_EXP/config.json"
+
+.venv/bin/python -m analysis.pft_linearity.compare_mixing \
+    --checkpoint "$NOMIX_CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
+    --predict_sites val --n_predict_sites 0 \
     --purity 0.9 \
-    --output_dir runs/pft_linearity/<nomix_experiment>
+    --output_dir "$PFT_OUT"
 ```
 
 The check is expensive because each site-year needs 15 extra forward passes.
@@ -52,15 +70,19 @@ Use `--n_predict_sites` to keep the first run small.
 Add a PFT-mixing checkpoint on the same cells:
 
 ```bash
-python -m analysis.pft_linearity.compare_mixing \
-    --checkpoint runs/<nomix_experiment>/checkpoints/run_best_model.pth.tar \
-    --checkpoint_mixing runs/<mix_experiment>/checkpoints/run_best_model.pth.tar \
+export MIX_EXP=mix_aelstm
+export MIX_CKPT="$RUNS/$MIX_EXP/checkpoints/run_best_model.pth.tar"
+
+.venv/bin/python -m analysis.pft_linearity.compare_mixing \
+    --checkpoint "$NOMIX_CKPT" \
+    --checkpoint_mixing "$MIX_CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
-    --output_dir runs/pft_linearity/<nomix_experiment>
+    --predict_sites val --n_predict_sites 0 \
+    --purity 0.9 \
+    --output_dir "$PFT_OUT"
 ```
 
 Both checkpoints must use the same `seq_length` and the same feature

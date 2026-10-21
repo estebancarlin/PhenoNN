@@ -5,13 +5,12 @@
 # submit_year_split.sh.
 #
 #SBATCH --job-name=yeargen
-#SBATCH --output=Output_yeargen_%x_%j.out
-#SBATCH --error=Output_yeargen_%x_%j.err
+#SBATCH --output=runs/year_generalization/logs/yeargen_%x_%j.out
+#SBATCH --error=runs/year_generalization/logs/yeargen_%x_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=12
-#SBATCH --mem=245G
 #SBATCH --time=24:00:00
 #SBATCH --requeue
 
@@ -26,7 +25,8 @@ source "$PROJECT/analysis/_cluster.sh"
 phenonn_cluster_init
 
 ALL_YEARS="${ALL_YEARS:-1992-2019}"
-TEMP_RANK_JSON="${TEMP_RANK_JSON:-$PROJECT/year_temp_rank.json}"
+YEAR_SUBSET="${YEAR_SUBSET:-0.5}"
+TEMP_RANK_JSON="${TEMP_RANK_JSON:-$PROJECT/runs/year_generalization/year_temp_rank.json}"
 
 phenonn_require_data \
     "$DATA/era5_pixelset" \
@@ -55,11 +55,11 @@ fi
     --co2_path        "$DATA/CO2_1700_2023_TRENDYv2024.txt" \
     --val_fraction_of_grid 100 \
     --n_years_per_epoch 30 --n_sites_per_epoch 250000 --n_val_sites 50000 \
-    --subset 0.5 \
+    --subset "$YEAR_SUBSET" \
     --type aelstm --hidden_size 256 --num_layers 2 \
     --learning_rate 1e-3 --weight_decay 1e-5 \
     --loss_type huber \
     --pft_mixing --pft_meteo_only \
     --num_epochs 300 --patience 15 \
     --batch_size 64 --amp --num_workers 2 \
-    --prefix "" --output_dir ./runs/year_generalization
+    --prefix "" --output_dir "$PROJECT/runs/year_generalization"

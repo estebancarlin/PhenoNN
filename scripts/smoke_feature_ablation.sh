@@ -9,7 +9,7 @@
 # Usage:
 #   bash scripts/smoke_feature_ablation.sh
 #   bash scripts/smoke_feature_ablation.sh Tmean tp_sum
-#   DATA=/path/to/pixelset1 bash scripts/smoke_feature_ablation.sh
+#   DATA="$PWD/pixelset1" bash scripts/smoke_feature_ablation.sh
 #
 # Output: runs/feature_ablation_smoke/{abl_*,feature_ablation.csv,png}
 

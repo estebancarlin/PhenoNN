@@ -19,67 +19,77 @@ Run every command from the repository root after following
 [the analysis setup](../README.md#before-you-start).
 
 ```bash
-cd /path/to/PhenoNN
+cd /home/ecarlin/PhenoNN
 source .venv/bin/activate
-export DATA=/path/to/pixelset1
+
+export DATA="$PWD/pixelset1"
+export RUNS="$PWD/runs"
+export RUNS_TARGET=/net/nfs/ssd1/ecarlin/phenonn/runs
+
+test -L "$RUNS" || { echo "runs/ is not a symlink; stop"; exit 1; }
+test "$(readlink -f "$RUNS")" = "$RUNS_TARGET" \
+    || { echo "runs/ points somewhere unexpected"; exit 1; }
+
+export DATA
+export RUNS
 ```
 
 The checkpoint normally stores the training data paths. Pass the data flags
 explicitly when those paths are not available on the machine running the
 analysis.
 
-## Quick start
+## Run all four scenarios
 
-Run one scenario on the validation split:
+The existing baseline checkpoint is usable:
 
 ```bash
-python -m analysis.perturbation.drought \
-    --checkpoint runs/<experiment>/checkpoints/run_best_model.pth.tar \
+export EXP=baseline_lstm
+export CKPT="$RUNS/baseline/baseline_lstm/checkpoints/run_best_model.pth.tar"
+export PERT_OUT="$RUNS/perturbation/$EXP"
+
+test -f "$CKPT"
+```
+
+```bash
+.venv/bin/python -m analysis.perturbation.drought \
+    --checkpoint "$CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
+    --predict_sites val --n_predict_sites 0 \
     --precip_factor 0.5 --season growing \
-    --output_dir runs/perturbation/<experiment>
-```
+    --output_dir "$PERT_OUT"
 
-The other scenarios use the same common options:
-
-```bash
-python -m analysis.perturbation.heatwave \
-    --checkpoint runs/<experiment>/checkpoints/run_best_model.pth.tar \
+.venv/bin/python -m analysis.perturbation.heatwave \
+    --checkpoint "$CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
+    --predict_sites val --n_predict_sites 0 \
     --delta_t 5 --season summer \
-    --output_dir runs/perturbation/<experiment>
-```
+    --output_dir "$PERT_OUT"
 
-```bash
-python -m analysis.perturbation.warming_co2 \
-    --checkpoint runs/<experiment>/checkpoints/run_best_model.pth.tar \
+.venv/bin/python -m analysis.perturbation.warming_co2 \
+    --checkpoint "$CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
+    --predict_sites val --n_predict_sites 0 \
     --delta_t 2 --delta_co2 100 \
-    --output_dir runs/perturbation/<experiment>
-```
+    --output_dir "$PERT_OUT"
 
-```bash
-python -m analysis.perturbation.winter_frost \
-    --checkpoint runs/<experiment>/checkpoints/run_best_model.pth.tar \
+.venv/bin/python -m analysis.perturbation.winter_frost \
+    --checkpoint "$CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
+    --predict_sites val --n_predict_sites 0 \
     --delta_t 8 --season winter \
-    --output_dir runs/perturbation/<experiment>
+    --output_dir "$PERT_OUT"
 ```
 
 ## Scenarios
@@ -127,8 +137,8 @@ the 36 dekad positions so every scenario writes the same table layout.
 After all four scenarios have written their `deltas.csv` files:
 
 ```bash
-python -m analysis.perturbation.aggregate_perturbation \
-    --output_dir runs/perturbation/<experiment>
+.venv/bin/python -m analysis.perturbation.aggregate_perturbation \
+    --output_dir "$PERT_OUT"
 ```
 
 The aggregation writes `comparison.csv`, `comparison.txt`, and

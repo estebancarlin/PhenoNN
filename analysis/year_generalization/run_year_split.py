@@ -101,7 +101,9 @@ def main():
         help="show this help message and exit",
     )
     ap.add_argument("--split", required=True)
-    ap.add_argument("--temp_rank_json", default="year_temp_rank.json")
+    ap.add_argument(
+        "--temp_rank_json", default="runs/year_generalization/year_temp_rank.json"
+    )
     ap.add_argument(
         "--all_years",
         default="",

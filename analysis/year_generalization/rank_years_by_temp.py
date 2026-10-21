@@ -12,7 +12,7 @@ Torch-free (xarray + numpy). Run on the machine that holds the data.
     python -m analysis.year_generalization.rank_years_by_temp \\
         --features_dir /data/ecarlin/pixelset1/era5_pixelset \\
         --year_start 1992 --year_end 2019 \\
-        --out year_temp_rank.json
+        --out runs/year_generalization/year_temp_rank.json
 """
 
 import argparse
@@ -38,7 +38,7 @@ def main():
     p.add_argument(
         "--var", default="Tmean", help="Temperature variable (default Tmean)."
     )
-    p.add_argument("--out", default="year_temp_rank.json")
+    p.add_argument("--out", default="runs/year_generalization/year_temp_rank.json")
     args = p.parse_args()
     if args.year_end < args.year_start:
         p.error("--year_end must be greater than or equal to --year_start")

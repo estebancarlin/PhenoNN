@@ -21,18 +21,20 @@ environment variables described below.
 ## One checkpoint
 
 ```bash
+export RUNS="$PWD/runs"
 export PHENONN_SITE=hal
-export CKPT=runs/<experiment>/checkpoints/run_best_model.pth.tar
+export EXP=baseline_lstm
+export CKPT="$RUNS/baseline/baseline_lstm/checkpoints/run_best_model.pth.tar"
 bash analysis/perturbation/jobs/submit_perturbation.sh
 ```
 
-The default output is `runs/perturbation/<experiment>`. Override it with
-`OUT`, and change the site count with `NSITES`:
+The default output is `$RUNS/perturbation/<experiment>`. Override it with
+`OUT`, and change the site count with `NSITES` (`0` means every site):
 
 ```bash
-CKPT=runs/<experiment>/checkpoints/run_best_model.pth.tar \
-OUT=runs/perturbation/custom \
-NSITES=1000 \
+export OUT="$RUNS/perturbation/custom"
+export NSITES=0
+
 bash analysis/perturbation/jobs/submit_perturbation.sh
 ```
 
@@ -46,7 +48,7 @@ under `<RUNS_ROOT>/<experiment>/checkpoints/`.
 export PHENONN_SITE=hal
 export MODE=eval
 export EXPERIMENTS="exp_a exp_b"
-export RUNS_ROOT=runs
+export RUNS_ROOT="$RUNS"
 bash analysis/perturbation/jobs/submit_perturbation.sh
 ```
 
@@ -70,7 +72,7 @@ Write the submission commands without running them:
 
 ```bash
 PHENONN_DRY_RUN=1 PHENONN_SITE=hal \
-CKPT=runs/<experiment>/checkpoints/run_best_model.pth.tar \
+CKPT="$CKPT" \
 bash analysis/perturbation/jobs/submit_perturbation.sh
 ```
 
@@ -78,7 +80,7 @@ Run the job in the current shell instead of submitting it:
 
 ```bash
 PHENONN_LOCAL=1 PHENONN_SITE=local \
-CKPT=runs/<experiment>/checkpoints/run_best_model.pth.tar \
+CKPT="$CKPT" \
 NSITES=100 \
 bash analysis/perturbation/jobs/submit_perturbation.sh
 ```

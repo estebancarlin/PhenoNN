@@ -11,17 +11,29 @@ tests in `tests/test_feature_ablation.py`.
 
 ## Before you start
 
-Run every command from the repository root:
+Run every command from the repository root. These examples use the HAL layout;
+change `DATA` and `RUNS_TARGET` for another machine.
 
 ```bash
-cd /path/to/PhenoNN
+cd /home/ecarlin/PhenoNN
 source .venv/bin/activate
-export DATA=/path/to/pixelset1
+
+export DATA="$PWD/pixelset1"
+export RUNS="$PWD/runs"
+export RUNS_TARGET=/net/nfs/ssd1/ecarlin/phenonn/runs
+
+test -L "$RUNS" || { echo "runs/ is not a symlink; stop"; exit 1; }
+test "$(readlink -f "$RUNS")" = "$RUNS_TARGET" \
+    || { echo "runs/ points somewhere unexpected"; exit 1; }
+
+export DATA
+export RUNS
 ```
 
 `$DATA` must contain the pixelset files described in the main README. The
 analysis modules resolve from the repository root because `phenonn` is
-installed in editable mode.
+installed in editable mode. Keep `runs/` as a symlink to SSD-backed storage;
+the repository ignores the link itself.
 
 ## Quick start: evaluate a checkpoint
 
@@ -112,11 +124,17 @@ bash scripts/smoke_feature_ablation.sh
 For the full study:
 
 ```bash
-export PHENONN_SITE=hal
-bash analysis/feature_ablation/jobs/submit_ablate.sh
-python -m analysis.feature_ablation.aggregate --kind features \
-    --runs_dir runs/feature_ablation
+export FA_ROOT="$RUNS/feature_ablation"
+
+OUTPUT_DIR="$FA_ROOT" PHENONN_SITE=hal \
+    bash analysis/feature_ablation/jobs/submit_ablate.sh --study features
+
+.venv/bin/python -m analysis.feature_ablation.aggregate \
+    --kind features --runs_dir "$FA_ROOT"
 ```
+
+On HAL the paper profile defaults to `SUBSET=0.25` and `PHENONN_MEM=120G`.
+Override with `SUBSET=...` or `PHENONN_MEM=...` when using larger nodes.
 
 See `feature_ablation/README.md` for the full workflow, grouped and combo
 studies, and result interpretation.
@@ -128,21 +146,26 @@ channels changed and reports the difference from the baseline prediction. Four
 scenarios are provided: drought, heatwave, warming plus CO2, and winter frost.
 
 ```bash
-python -m analysis.perturbation.drought \
-    --checkpoint runs/<experiment>/checkpoints/run_best_model.pth.tar \
+export EXP=baseline_lstm
+export CKPT="$RUNS/baseline/baseline_lstm/checkpoints/run_best_model.pth.tar"
+export PERT_OUT="$RUNS/perturbation/$EXP"
+
+.venv/bin/python -m analysis.perturbation.drought \
+    --checkpoint "$CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
-    --output_dir runs/perturbation/<experiment>
+    --predict_sites val --n_predict_sites 0 \
+    --precip_factor 0.5 --season growing \
+    --output_dir "$PERT_OUT"
 ```
 
 Aggregate all four scenarios after they finish:
 
 ```bash
-python -m analysis.perturbation.aggregate_perturbation \
-    --output_dir runs/perturbation/<experiment>
+.venv/bin/python -m analysis.perturbation.aggregate_perturbation \
+    --output_dir "$PERT_OUT"
 ```
 
 See [perturbation/README.md](perturbation/README.md) for every scenario
@@ -157,14 +180,19 @@ of pure-PFT predictions. It tests whether the model behaves linearly in the 15
 PFT fractions.
 
 ```bash
-python -m analysis.pft_linearity.compare_mixing \
-    --checkpoint runs/<nomix_experiment>/checkpoints/run_best_model.pth.tar \
+export NOMIX_EXP=nomix_aelstm
+export NOMIX_CKPT="$RUNS/$NOMIX_EXP/checkpoints/run_best_model.pth.tar"
+export PFT_OUT="$RUNS/pft_linearity/$NOMIX_EXP"
+
+.venv/bin/python -m analysis.pft_linearity.compare_mixing \
+    --checkpoint "$NOMIX_CKPT" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
     --parent_map "$DATA/selected_pixels01_1.nc" \
-    --predict_sites val --n_predict_sites 5000 \
-    --output_dir runs/pft_linearity/<nomix_experiment>
+    --predict_sites val --n_predict_sites 0 \
+    --purity 0.9 \
+    --output_dir "$PFT_OUT"
 ```
 
 See [pft_linearity/README.md](pft_linearity/README.md) for the optional
@@ -177,13 +205,20 @@ year splits. It covers a chronological split, four random splits, and a
 cold-to-hot split.
 
 ```bash
-python -m analysis.year_generalization.rank_years_by_temp \
+export YEAR_ROOT="$RUNS/year_generalization"
+export RANK_JSON="$YEAR_ROOT/year_temp_rank.json"
+
+.venv/bin/python -m analysis.year_generalization.rank_years_by_temp \
     --features_dir "$DATA/era5_pixelset" \
     --year_start 1992 --year_end 2019 \
-    --out year_temp_rank.json
+    --out "$RANK_JSON"
 
-python -m analysis.year_generalization.run_year_split \
-    --split rand1 --all_years 1992-2019 \
+export SPLIT=chrono
+export YEAR_SUBSET=0.25
+
+.venv/bin/python -m analysis.year_generalization.run_year_split \
+    --split "$SPLIT" --all_years 1992-2019 \
+    --temp_rank_json "$RANK_JSON" \
     --features_dir "$DATA/era5_pixelset" \
     --target_dir "$DATA/LAI_pixelset" \
     --pft_dir "$DATA/PFT_pixelset" \
@@ -191,10 +226,21 @@ python -m analysis.year_generalization.run_year_split \
     --parent_map "$DATA/selected_pixels01_1.nc" \
     --stats_path "$DATA/norm_stats_1992_2019.json" \
     --co2_path "$DATA/CO2_1700_2023_TRENDYv2024.txt" \
-    --pft_mixing --pft_meteo_only
+    --val_fraction_of_grid 100 \
+    --n_years_per_epoch 30 --n_sites_per_epoch 250000 --n_val_sites 50000 \
+    --subset "$YEAR_SUBSET" \
+    --type aelstm --hidden_size 256 --num_layers 2 \
+    --learning_rate 1e-3 --weight_decay 1e-5 \
+    --loss_type huber \
+    --pft_mixing --pft_meteo_only \
+    --num_epochs 300 --patience 15 \
+    --batch_size 64 --amp --num_workers 2 \
+    --prefix "" --output_dir "$YEAR_ROOT"
 ```
 
-See [year_generalization/README.md](year_generalization/README.md) for the full
+On HAL, keep `YEAR_SUBSET=0.25` to fit the 120G nodes. Use `YEAR_SUBSET=0.5`
+on Leonardo or another large-memory system. See
+[year_generalization/README.md](year_generalization/README.md) for the full
 fixed model configuration, split definitions, and job submission. Job details
 are in
 [year_generalization/jobs/README.md](year_generalization/jobs/README.md).
@@ -398,4 +444,6 @@ scripts:
 needed, activates the virtual environment, and adds site-specific `sbatch`
 options. HAL and local runs need no modules. Leonardo defaults to
 `profile/deeplrn cineca-ai`. Override this with `PHENONN_MODULES`; set it to an
-empty value to disable module loading.
+empty value to disable module loading. HAL nodes have at most 120G per job,
+which is why the year-split and paper feature-ablation wrappers default to a
+0.25 site subset on HAL.

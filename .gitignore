@@ -171,8 +171,7 @@ stats/*
 checkpoints/*
 !checkpoints/.gitkeep
 
-runs/*
-!runs/.gitkeep
+/runs
 
 logs/*
 !logs/.gitkeep
