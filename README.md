@@ -66,8 +66,8 @@ ecosystems in climate models, with four research directions:
 - **Causal masking** — transformer and LSTM variants can be made
   strictly causal so that no future weather leaks into earlier
   predictions.
-- **Post-training analysis** — feature ablation and climatology/
-  diagnostic baselines.
+- **Post-training analysis** — feature ablation, climate perturbation, PFT
+  linearity, year generalization, and climatology/diagnostic baselines.
 - **GPU acceleration** — CUDA support, optional bfloat16 autocast.
 
 ---
@@ -138,7 +138,8 @@ python -m phenonn.training.train_full_ram \
 ```
 
 Checkpoints and logs land in `runs/my_run/checkpoints/` and
-`runs/my_run/logs/`.
+`runs/my_run/logs/`. Keep `runs/` as a symlink to SSD-backed storage on the
+cluster; the repository ignores the link itself.
 
 ### Predict with a trained checkpoint
 
@@ -166,7 +167,7 @@ bash scripts/smoke_train.sh
 If your data is not in the default location:
 
 ```bash
-DATA=/path/to/pixelset1 bash scripts/smoke_train.sh
+DATA="$PWD/pixelset1" bash scripts/smoke_train.sh
 ```
 
 ---
@@ -315,8 +316,13 @@ PhenoNN/
 │   │   └── utils.py                  # EasyDict, FileUtils
 ├── analysis/                         # post-training studies (not packaged)
 │   ├── _checkpoint_utils.py          # state_dict / best-checkpoint helpers
+│   ├── _cluster.sh                   # shared cluster and environment helpers
 │   ├── diagnostics/                  # one-shot data/model diagnostics
-│   └── feature_ablation/             # leave-one-feature-out ablation
+│   ├── feature_ablation/             # leave-one-feature-out ablation
+│   ├── perturbation/                 # weather-perturbation scenarios
+│   ├── pft_linearity/                # PFT-fraction linearity check
+│   ├── year_generalization/          # train/validation year splits
+│   └── memory_analysis/              # experimental protocol only
 ├── tests/                            # unit tests (unittest)
 ├── scripts/                          # hand-run diagnostics and smoke tests
 ├── legacy/                           # archived modules (removed 2027-01)

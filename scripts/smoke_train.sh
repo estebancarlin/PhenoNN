@@ -16,7 +16,7 @@
 #   bash scripts/smoke_train.sh
 #
 #   # override the data directory
-#   DATA=/path/to/pixelset1 bash scripts/smoke_train.sh
+#   DATA="$PWD/pixelset1" bash scripts/smoke_train.sh
 #
 # All default paths point to ../pixelset1 next to the repo. Edit below
 # if your layout changes.

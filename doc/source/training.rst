@@ -237,7 +237,7 @@ Output and resume
    * - Flag
      - Description
    * - ``--output_dir``
-     - Root output directory (default ``runs_final``).
+     - Root output directory (default ``runs``).
    * - ``--experiment``
      - Experiment name; the checkpoint goes to
        ``<output_dir>/<experiment>/``.

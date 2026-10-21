@@ -90,9 +90,9 @@ Usage
 .. code-block:: bash
 
     python -m phenonn.prediction.predict \\
-        --checkpoint runs_final/exp/checkpoints/best_model.pth.tar \\
+        --checkpoint runs/exp/checkpoints/best_model.pth.tar \\
         --predict_sites val \\
-        --output_csv runs_final/exp/predictions.csv
+        --output_csv runs/exp/predictions.csv
 """
 
 import argparse

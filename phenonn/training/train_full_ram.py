@@ -304,7 +304,7 @@ def parse_args(argv=None):
     )
 
     # ── Output / resume ──
-    p.add_argument("--output_dir", default="runs_final")
+    p.add_argument("--output_dir", default="runs")
     p.add_argument("--experiment", default="exp_big")
     p.add_argument("--prefix", default="run", help="Prefix for checkpoint filenames.")
     p.add_argument(

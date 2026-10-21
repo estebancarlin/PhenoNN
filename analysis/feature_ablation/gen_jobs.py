@@ -243,13 +243,25 @@ def main():
         default="",
         help="Override the generated training arguments with this string.",
     )
+    parser.add_argument(
+        "--subset",
+        type=float,
+        default=None,
+        help="Override the profile --subset value (0 < subset <= 1).",
+    )
     args = parser.parse_args()
     if args.per_gpu < 1:
         parser.error("--per-gpu must be at least 1")
+    if args.subset is not None and not 0.0 < args.subset <= 1.0:
+        parser.error("--subset must be in (0, 1]")
+    if args.subset is not None and args.common_args:
+        parser.error("--subset cannot be combined with --common_args")
 
     from analysis.feature_ablation._common import GROUPS, NON_PFT_FEATURES
 
-    profile = PROFILES[args.profile]
+    profile = dict(PROFILES[args.profile])
+    if args.subset is not None:
+        profile["subset"] = args.subset
     project = str(Path(args.project).expanduser().resolve())
     data = args.data or default_data_dir(project)
     venv = args.venv or str(Path(project) / ".venv" / "bin" / "activate")

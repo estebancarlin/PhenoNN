@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""
+warming_co2.py: LAI impact of long-term warming + rising CO2.
+
+Ceteris paribus: adds `--delta_t` C to the temperature channels (Tmin, Tmax,
+Tmean) AND `--delta_co2` ppm to the CO2 channel, over the whole year, everything
+else held fixed, then reports Delta LAI vs the unperturbed prediction. This is the
+combined "climate trend" scenario (temperature and CO2 both increasing in time).
+
+Set `--delta_co2 0` for a pure-warming run, or `--delta_t 0` for a pure-CO2 run.
+
+Usage
+-----
+    python -m analysis.perturbation.warming_co2 \\
+        --checkpoint runs/exp/checkpoints/run_best_model.pth.tar \\
+        --predict_sites val --delta_t 2 --delta_co2 100 \\
+        --output_dir runs/perturbation
+"""
+
+import argparse
+
+from analysis.perturbation import run_perturbation as R
+from analysis.perturbation._perturb import (
+    SEASONS,
+    ChannelPerturbation,
+    Perturbation,
+)
+
+SCENARIO = "warming_co2"
+TEMP_CHANNELS = ["Tmin", "Tmax", "Tmean"]
+
+
+def main():
+    """Run the warming-plus-CO2 scenario from command-line arguments."""
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    R.add_common_args(p)
+    p.add_argument(
+        "--delta_t",
+        type=float,
+        default=2.0,
+        help="Degrees Celsius added to Tmin/Tmax/Tmean. Default +2.",
+    )
+    p.add_argument(
+        "--delta_co2",
+        type=float,
+        default=100.0,
+        help="ppm added to the CO2 channel (all year). Default +100.",
+    )
+    p.add_argument(
+        "--season",
+        default="year",
+        choices=list(SEASONS),
+        help="DOY window of the change (default: year = all days).",
+    )
+    args = p.parse_args()
+
+    def make(norm_stats):
+        """Build the combined temperature and CO2 perturbation."""
+        chans = [ChannelPerturbation(f, add=args.delta_t) for f in TEMP_CHANNELS]
+        if args.delta_co2 != 0.0:
+            chans.append(ChannelPerturbation("co2", add=args.delta_co2))
+        return Perturbation(chans, norm_stats, season_ranges=SEASONS[args.season])
+
+    R.run(
+        args,
+        make,
+        SCENARIO,
+        f"Temperature {args.delta_t:+g} C + CO2 {args.delta_co2:+g} ppm "
+        f"over {args.season}.",
+    )
+
+
+if __name__ == "__main__":
+    main()

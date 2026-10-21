@@ -8,7 +8,7 @@ because the runs happen in one in-process sweep.
 
     python -m analysis.feature_ablation.smoke
     python -m analysis.feature_ablation.smoke --features Tmean
-    python -m analysis.feature_ablation.smoke --data /path/to/pixelset1
+    python -m analysis.feature_ablation.smoke --data "$PWD/pixelset1"
 
 Outputs go to ``runs/feature_ablation_smoke`` by default.
 """
