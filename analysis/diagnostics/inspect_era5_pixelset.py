@@ -58,7 +58,7 @@ def parse_args():
     p.add_argument(
         "--parent_map",
         default="",
-        help="selected_pixels_01.nc mapping 0.05° site_ids to their 0.1° "
+        help="selected_pixels01_1.nc mapping 0.05° site_ids to their 0.1° "
         "ERA5 parent cells. Required when --selected_pixels holds 0.05° "
         "(pix_...) ids but the ERA5 cubes are 0.1° (E... ids), as in "
         "scripts/smoke_train.sh.",

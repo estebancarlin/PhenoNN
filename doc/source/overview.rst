@@ -118,11 +118,14 @@ configuration it is 28 (10 + 2 meteorology, 1 CO2, 15 PFT).
 Input data format
 -----------------
 
-PhenoNN reads pixelset NetCDF files, one per year, all keyed by a
-``site_id`` string of the form ``pix_LLLL_OOOOO``:
+PhenoNN reads pixelset NetCDF files, one per year. LAI/PFT targets use
+``site_id`` strings of the form ``pix_LLLL_OOOOO`` on the native 0.05°
+grid:
 
-- ``ERA5_daily_pixelset_{YYYY}.nc`` — dims ``(time, site)``, 10 daily
-  meteorology variables.
+- ``ERA5_daily_pixelset_{YYYY}.nc`` — dims ``(time, site)``, 12
+  dynamic variables (10 base meteorology + ``daylength`` + ``SMI``). On
+  the report route the site IDs are deduplicated 0.1° ``E...`` cells and
+  a parent map joins them to the 0.05° targets.
 - ``LAI_dekadal_{YYYY}.nc`` — dims ``(dekad, site)``, variable ``LAI``
   with 36 dekads per year.
 - ``PFTmap_{YYYY}.nc`` — dims ``(pft, site)``, variable ``pft_frac``

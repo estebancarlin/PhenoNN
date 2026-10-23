@@ -70,8 +70,8 @@ Examples
 ::
 
     python -m phenonn.datagen.make_selected_pixels_01 \\
-        --selected_pixels /leonardo_work/EUHPC_D36_053/PhenoNN/data/selected_pixels.nc \\
-        --output          /leonardo_work/EUHPC_D36_053/PhenoNN/data/selected_pixels_01.nc
+        --selected_pixels /data/ecarlin/pixelset1/selected_pixels005_1.nc \\
+        --output          /data/ecarlin/pixelset1/selected_pixels01_1.nc
 """
 
 import argparse

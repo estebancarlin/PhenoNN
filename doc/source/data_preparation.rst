@@ -1,10 +1,11 @@
 Data preparation
 ================
 
-PhenoNN reads pixelset NetCDF files. Every variable — meteorology,
-targets, PFT fractions — is stored in a per-year file with a flat
-``site`` dimension and a ``site_id`` coordinate, so a site can be looked
-up by name in any file without re-indexing.
+PhenoNN reads pixelset NetCDF files. Target variables (LAI and PFT) are
+stored in per-year files with a flat ``site`` dimension and a ``site_id``
+coordinate on the native 0.05° grid. ERA5 features also use a flat ``site``
+dimension, but may be keyed either by the same 0.05° IDs or by deduplicated
+0.1° cell IDs joined through a parent map.
 
 File naming
 -----------
@@ -31,18 +32,22 @@ respected. For each year ``YYYY``:
 
 In addition, a small set of **non-yearly** auxiliary files:
 
-- ``selected_pixels.nc`` — the site pool, with ``site_id``, ``latitude``
-  and ``longitude``.
-- ``norm_stats.json`` — per-feature ``{"mean": …, "std": …}``.
+- ``selected_pixels005_balanced.nc`` — the 0.05° training site pool, with
+  ``site_id``, ``latitude`` and ``longitude``.
+- ``selected_pixels01_1.nc`` — optional 0.05°→0.1° parent map, with
+  ``site_id05`` and ``parent_site``.
+- ``norm_stats.json`` — per-feature ``{"mean": ..., "std": ...}``.
 - a CO2 lookup file, one ``Annee_YYYY=VALUE`` per line.
 
 Site identifiers
 ----------------
 
-A site is identified by ``pix_LLLL_OOOOO`` where ``LLLL`` is the
-latitude index and ``OOOOO`` the longitude index in the native grid,
-both zero-padded. The same string is used as the ``site_id`` in every
-file, so joins across files are exact.
+A target site is identified by ``pix_LLLL_OOOOO`` where ``LLLL`` and
+``OOOOO`` are indices on the native 0.05° LAI/PFT grid, both zero-padded.
+LAI, PFT, daily LAI and target statistics use these IDs directly. On the
+0.1° ERA5 route, features use ``E{lat_idx}_{lon_idx}`` IDs; the parent map
+links each ``pix_...`` site to its ``E...`` parent. On the legacy identity
+route, features use the same ``pix_...`` IDs as the targets.
 
 The functions :func:`~phenonn.data.lai_dataset.encode_site_id` and
 :func:`~phenonn.data.lai_dataset.decode_site_id` convert between
@@ -66,8 +71,9 @@ entries) plus the engineered ``daylength`` and ``SMI`` (see
 If ``add_pheno_features = True`` in :mod:`phenonn.utils.config`, the ten
 thermal phenology variables in ``DERIVED_FEATURES`` are also read
 (GDD, NCD, NGD, Botta threshold and forcing, rising and falling
-temperature trends). Those are computed offline by the preprocessing
-scripts in the sibling ``data_creation`` module.
+temperature trends). Those are computed by
+:mod:`phenonn.datagen.add_pheno_thermal` when the optional phenology step is
+enabled.
 
 Target file
 -----------
@@ -106,8 +112,8 @@ dispatch.
 Selected pixels
 ---------------
 
-``selected_pixels.nc`` defines the site pool used by the training and
-prediction jobs. It carries three coordinates:
+``selected_pixels005_balanced.nc`` defines the target site pool used by the
+training and prediction jobs. It carries three coordinates:
 
 - ``site_id`` — string, ``pix_LLLL_OOOOO``
 - ``latitude`` — float, degrees
@@ -115,10 +121,11 @@ prediction jobs. It carries three coordinates:
 
 The file is read by
 :func:`~phenonn.data.lai_dataset.load_selected_pixels`. When you also
-provide ``--parent_map`` (a ``selected_pixels_01.nc`` produced by the
+provide ``--parent_map`` (a ``selected_pixels01_1.nc`` produced by the
 0.05°→0.1° deduplication step), the training and prediction jobs read
 ERA5 features from the deduplicated 0.1° file via each 0.05° site's
-containing cell.
+containing cell. A parent map with no overlap raises a clear error; a
+partial map is reported and the uncovered sites are dropped.
 
 Normalisation statistics
 ------------------------
@@ -203,15 +210,17 @@ A working setup looks like this::
     ├── PFT_pixelset/
     │   ├── PFTmap_1992.nc
     │   └── ...
-    ├── selected_pixels.nc
-    ├── selected_pixels_01.nc          # optional 0.05°→0.1° parent map
+    ├── selected_pixels005_1.nc
+    ├── selected_pixels005_balanced.nc
+    ├── selected_pixels01_1.nc         # 0.05°→0.1° parent map
     ├── norm_stats.json
     └── CO2_1700_2023_TRENDYv2024.txt
 
 The training and prediction jobs take three directory flags
-(``--features_dir``, ``--target_dir``, ``--pft_dir``) plus the three
-auxiliary paths (``--selected_pixels``, ``--stats_path``, ``--co2_path``),
-all of which point into this tree.
+(``--features_dir``, ``--target_dir``, ``--pft_dir``) plus the auxiliary
+paths (``--selected_pixels``, ``--parent_map``, ``--stats_path``,
+``--co2_path``), all of which point into this tree. ``--parent_map`` is
+required for the 0.1° ERA5 route and omitted for the 0.05° identity route.
 
 Daily LAI mode
 --------------
@@ -233,10 +242,10 @@ Building these files
 --------------------
 
 The scripts that produce this layout (ERA5 extraction, satellite LAI
-resampling, PFT mosaicking, site selection, normalisation statistics) are
-not part of this repository — they live in the sibling
-``data_creation`` module and depend on the raw ERA5-Land, ESA-CCI and
-ORCHIDEE archives.
+resampling, PFT mosaicking, site selection, normalisation statistics) live in
+``phenonn.datagen``; see ``phenonn/datagen/README.md`` for the full pipeline
+and run order. They depend on the raw ERA5-Land, ESA-CCI and ORCHIDEE
+archives.
 
 If you already have the files, skip straight to :doc:`quickstart`. If
 you are starting from scratch, the raw archives and the extraction

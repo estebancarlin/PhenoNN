@@ -20,7 +20,7 @@ Coverage
 - ``co2`` — when ``--co2_path`` is provided.
 
 Heavy-tailed dynamic features are ``log1p``-transformed BEFORE mean/std,
-matching what ``phenon.data.lai_dataset`` does at training time. The output
+matching what ``phenonn.data.lai_dataset`` does at training time. The output
 format is byte-identical to the old ``phenon/data_old/create_stats_file.py``,
 so ``--stats_path`` consumers (train / train_full_RAM / predict) work unchanged.
 

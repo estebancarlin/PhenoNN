@@ -110,7 +110,7 @@ def parse_args():
     p.add_argument(
         "--parent_map",
         default="",
-        help="selected_pixels_01.nc mapping 0.05° site_ids to 0.1° ERA5 "
+        help="selected_pixels01_1.nc mapping 0.05° site_ids to 0.1° ERA5 "
         "parents (default: from checkpoint, as in training).",
     )
     p.add_argument(

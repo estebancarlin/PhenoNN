@@ -127,7 +127,8 @@ python -m phenonn.training.train_full_ram \
     --features_dir /path/to/era5_pixelset \
     --target_dir   /path/to/LAI_pixelset \
     --pft_dir      /path/to/PFT_pixelset \
-    --selected_pixels /path/to/selected_pixels.nc \
+    --selected_pixels /path/to/selected_pixels005_balanced.nc \
+    --parent_map      /path/to/selected_pixels01_1.nc \
     --stats_path      /path/to/norm_stats.json \
     --co2_path        /path/to/CO2.txt \
     --train_years 1992-2009 --val_years 2010-2019 \
@@ -174,21 +175,27 @@ DATA="$PWD/pixelset1" bash scripts/smoke_train.sh
 
 ## Data layout
 
-Three per-year NetCDF files, one per variable family, keyed by a
-`site_id` coordinate of the form `pix_LLLL_OOOOO`:
+Three per-year NetCDF files, one per variable family. LAI/PFT targets use
+native `pix_LLLL_OOOOO` site IDs. On the report route ERA5 features use
+deduplicated 0.1° `E...` cell IDs and `selected_pixels01_1.nc` maps every
+target site to its parent cell; the legacy identity route stores ERA5 on the
+same `pix_...` sites.
 
 | File | Variable | Dimensions |
 |---|---|---|
-| `ERA5_daily_pixelset_{YYYY}.nc` | 10 meteorology variables + `daylength` + `SMI` | `(time, site)` |
+| `ERA5_daily_pixelset_{YYYY}.nc` | 12 dynamic variables: 10 base meteorology + `daylength` + `SMI` | `(time, site)` |
 | `LAI_dekadal_{YYYY}.nc` | `LAI` | `(dekad, site)` |
 | `PFTmap_{YYYY}.nc` | `pft_frac` (15 PFTs, ORCHIDEE order) | `(pft, site)` |
 
-Plus three auxiliary files that apply to all years:
+Plus auxiliary files that apply to all years:
 
-- `selected_pixels.nc` — the site pool, with `site_id`, `latitude`,
-  `longitude`.
-- `norm_stats.json` — per-feature `{"mean": …, "std": …}` statistics.
+- `selected_pixels005_balanced.nc` - the 0.05° training site pool.
+- `selected_pixels01_1.nc` - optional parent map for the 0.1° ERA5 route.
+- `norm_stats.json` - per-feature `{"mean": ..., "std": ...}` statistics.
 - a CO2 lookup file with one `Annee_YYYY=VALUE` line per year.
+
+On the report route, pass both `--selected_pixels selected_pixels005_balanced.nc`
+and `--parent_map selected_pixels01_1.nc` to training and prediction.
 
 For a target year `Y`, the dataset concatenates the `Y-1` and `Y` feature
 files and keeps the last `seq_length` days. **The `Y-1` file must be
@@ -240,6 +247,8 @@ ds = RamLAIDataset(
     seq_length=720,
     norm_stats=None,            # or a dict with mean/std per feature
     normalize_lai=True,
+    # parent_map=load_parent01_map("/path/to/selected_pixels01_1.nc"),
+    # ^ required for the deduplicated 0.1° ERA5 route
 )
 features, targets = ds[0]      # (n_features, 720)  and  (1, 36)
 

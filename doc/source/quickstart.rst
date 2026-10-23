@@ -14,7 +14,10 @@ Prerequisites
   - ``ERA5_daily_pixelset_{YYYY}.nc`` — daily meteorology
   - ``LAI_dekadal_{YYYY}.nc`` — 36 dekadal LAI observations
   - ``PFTmap_{YYYY}.nc`` — 15 PFT fractions
-  - ``selected_pixels.nc`` — the site pool
+  - ``selected_pixels005_1.nc`` (or ``selected_pixels005_balanced.nc``) —
+    the 0.05 degree site pool
+  - ``selected_pixels01_1.nc`` — the 0.05 degree to 0.1 degree parent map
+    (required for the deduplicated ERA5 route)
   - ``norm_stats.json`` — per-feature normalisation statistics (optional)
   - a CO2 lookup file (optional)
 
@@ -58,7 +61,8 @@ indices each epoch::
         --features_dir /path/to/era5_pixelset \
         --target_dir   /path/to/LAI_pixelset \
         --pft_dir      /path/to/PFT_pixelset \
-        --selected_pixels /path/to/selected_pixels.nc \
+        --selected_pixels /path/to/selected_pixels005_1.nc \
+        --parent_map      /path/to/selected_pixels01_1.nc \
         --stats_path      /path/to/norm_stats.json \
         --co2_path        /path/to/CO2.txt \
         --train_years 2000-2001 \
@@ -141,6 +145,8 @@ loader, and the training loops::
         seq_length=720,
         norm_stats=None,      # or a dict with mean/std per feature
         normalize_lai=True,
+        # parent_map=load_parent01_map("/path/to/selected_pixels01_1.nc"),
+        # ^ required for the deduplicated 0.1 degree ERA5 route
     )
     features, targets = ds[0]
     # features: (n_features, 720)   targets: (1, 36)
@@ -178,7 +184,8 @@ For training, use the same two functions the CLI uses::
         "--features_dir", "/path/to/era5_pixelset",
         "--target_dir",   "/path/to/LAI_pixelset",
         "--pft_dir",      "/path/to/PFT_pixelset",
-        "--selected_pixels", "/path/to/selected_pixels.nc",
+        "--selected_pixels", "/path/to/selected_pixels005_1.nc",
+        "--parent_map", "/path/to/selected_pixels01_1.nc",
         "--train_years", "2010-2015", "--val_years", "2016",
         "--type", "lstm", "--hidden_size", "128",
         "--pft_mixing", "--pft_meteo_only",

@@ -62,7 +62,12 @@ done
 # --save_checkpoint_name model
 cd "$REPO"
 
-python -m phenonn.training.train_full_ram \
+PYTHON="${PYTHON:-$REPO/.venv/bin/python}"
+if [[ ! -x "$PYTHON" ]]; then
+    PYTHON="python"
+fi
+
+"$PYTHON" -m phenonn.training.train_full_ram \
     --features_dir      "$FEATURES_DIR" \
     --target_dir        "$TARGET_DIR" \
     --pft_dir           "$PFT_DIR" \
@@ -83,7 +88,7 @@ python -m phenonn.training.train_full_ram \
     --pft_mixing \
     --pft_meteo_only \
     --loss_type         huber \
-    --num_epochs        10 \
+    --num_epochs        2 \
     --batch_size        4 \
     --num_workers       0 \
     --max_grad_norm     1.0 \

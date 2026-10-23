@@ -27,11 +27,11 @@ Pipeline position
 -----------------
 ::
 
-    make_selected_pixels_01.py  →  selected_pixels_01.nc        ← input here
+    make_selected_pixels_01.py  →  selected_pixels01_1.nc      <- input here
     THIS SCRIPT                 →  ERA5_daily_pixelset_{Y}.nc    (site = 0.1° cells)
 
 Re-expand later to the 0.05° sites with ``parent_site`` from
-``selected_pixels_01.nc``::
+``selected_pixels01_1.nc``::
 
     feat_05 = feat_01.isel(site=parent_site)
 
@@ -39,8 +39,10 @@ Output schema
 -------------
 ``dims: time=365, site=N01`` (the deduplicated 0.1° ERA5 cells)
 
-Variables: ``Tmin``, ``Tmax``, ``Tmean``, ``ssrd_sum``, ``strd_sum``,
-``tp_sum``, ``VPD_max``, ``VPD_mean``, ``Rn_tot``, ``PET``.
+Base variables: ``Tmin``, ``Tmax``, ``Tmean``, ``ssrd_sum``, ``strd_sum``,
+``tp_sum``, ``VPD_max``, ``VPD_mean``, ``Rn_tot``, ``PET``. Append
+``daylength`` and ``SMI`` afterwards with the two augmentation scripts to reach
+the 12-channel report contract.
 
 Coordinates: ``time``, ``latitude(site)``, ``longitude(site)``,
 ``site_id(site)``, ``lat_idx(site)``, ``lon_idx(site)`` — ``lat_idx`` /
@@ -58,9 +60,9 @@ Examples
 
     python -m phenonn.datagen.build_daily_dataset_era5idx \\
         --input_dir  /bdd/ERA5-Land/NETCDF/GLOBAL_01/hourly/FC_SF \\
-        --output_dir /leonardo_work/EUHPC_D36_053/PhenoNN/data/era5_pixelset_01 \\
-        --selected_pixels /leonardo_work/EUHPC_D36_053/PhenoNN/data/selected_pixels_01.nc \\
-        --year_start 1981 --year_end 2025
+        --output_dir /data/ecarlin/pixelset1/era5_pixelset \\
+        --selected_pixels /data/ecarlin/pixelset1/selected_pixels01_1.nc \\
+        --year_start 1992 --year_end 2019
 """
 
 import argparse
@@ -425,7 +427,7 @@ def process_year(
     lat_idx_da, lon_idx_da : xarray.DataArray
         RAW ERA5-Land indices with dim ``"site"``.
     selected_meta : xarray.Dataset
-        The open ``selected_pixels_01`` file.
+        The open ``selected_pixels01_1`` file.
     time_chunk, lat_chunk, lon_chunk : int
         Dask chunk sizes.
     complevel : int
@@ -464,10 +466,10 @@ def process_year(
     )
 
     # Record the 0.1° ERA5 cell identity on the 'site' dim, straight from the
-    # selected_pixels_01 file: site_id ("E{lat}_{lon}"), the cell-centre lat/lon,
+    # selected_pixels01_1 file: site_id ("E{lat}_{lon}"), the cell-centre lat/lon,
     # and the RAW ERA5 lat_idx/lon_idx used for the isel. (The isel already
     # inherited the same ERA5 cell centres, but we overwrite so the file carries
-    # the exact selected_pixels_01 metadata.)
+    # the exact selected_pixels01_1 metadata.)
     daily = daily.assign_coords(
         {
             "site_id": ("site", selected_meta["site_id"].values),
@@ -531,7 +533,7 @@ def parse_args():
     p.add_argument(
         "--selected_pixels",
         required=True,
-        help="selected_pixels_01.nc from make_selected_pixels_01.py "
+        help="selected_pixels01_1.nc from make_selected_pixels_01.py "
         "(site dim: RAW ERA5 lat_idx/lon_idx).",
     )
     p.add_argument("--year_start", type=int, default=1981)
@@ -547,7 +549,7 @@ def main():
     """
     Run the 0.1° ERA5 daily-pixelset build over a year range.
 
-    Loads ``selected_pixels_01.nc`` (raw ERA5 indices), wraps its ``lat_idx`` /
+    Loads ``selected_pixels01_1.nc`` (raw ERA5 indices), wraps its ``lat_idx`` /
     ``lon_idx`` as site-dim DataArrays, and iterates over
     ``range(args.year_start, args.year_end + 1)``. Per-year failures are
     caught, logged, and do not abort the run. A running ETA is printed.
@@ -568,7 +570,7 @@ def main():
     print(f"Hourly tile : {args.lat_chunk} × {args.lon_chunk}")
     print(f"Compression : zlib level {args.complevel}")
 
-    # selected_pixels_01.nc already stores the RAW ERA5-Land 0.1° indices
+    # selected_pixels01_1.nc already stores the RAW ERA5-Land 0.1° indices
     # (lat_idx 0..1800 for 90→-90, lon_idx 0..3599 for 0..360), baked by
     # make_selected_pixels_01.py. Use them directly — NO (idx+1)//2, NO
     # longitude roll (that mapping lives in build_daily_dataset_pixelset.py,

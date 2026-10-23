@@ -61,7 +61,8 @@ Usage
         --features_dir /data/.../era5_pixelset \
         --target_dir   /data/.../LAI_pixelset \
         --pft_dir      /data/.../PFT_pixelset \
-        --selected_pixels /data/.../selected_pixels.nc \
+        --selected_pixels /data/.../selected_pixels005_1.nc \
+        --parent_map   /data/.../selected_pixels01_1.nc \
         --train_years 1992-2010 --val_years 2011-2018 \
         --num_epochs 30 --n_sites_per_epoch 1000 --n_years_per_epoch 5 ...
 """

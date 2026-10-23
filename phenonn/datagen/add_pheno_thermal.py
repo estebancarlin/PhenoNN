@@ -51,7 +51,8 @@ warning is printed.
 
 Input / output
 --------------
-Input  (ERA5 pixelset, must already contain ``Tmean`` and ``latitude``)::
+Input  (ERA5 pixelset on either the 0.05 or 0.1 degree route, must already
+contain ``Tmean`` and ``latitude``)::
 
     {era5_dir}/ERA5_daily_pixelset_{Y}.nc     Tmean(time, site), latitude(site), …
 

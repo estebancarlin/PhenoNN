@@ -79,6 +79,7 @@ DATAGEN_MODULES = [
     "phenonn.datagen.build_pixelset_targets",
     "phenonn.datagen.interpolate_lai_daily_linear",
     "phenonn.datagen.add_daylength",
+    "phenonn.datagen.add_soil_moisture_proxy",
     "phenonn.datagen.add_pheno_thermal",
     "phenonn.datagen.create_stats_file",
     "phenonn.datagen.diagnose_selected_pixels",
@@ -97,6 +98,7 @@ DATAGEN_CLI = [
     "build_pixelset_targets",
     "interpolate_lai_daily_linear",
     "add_daylength",
+    "add_soil_moisture_proxy",
     "add_pheno_thermal",
     "create_stats_file",
     "diagnose_selected_pixels",
@@ -121,7 +123,7 @@ DATAGEN_PUBLIC_NAMES = [
 # Canonical data root: the final `pixelset1/` deliverable lives under it.
 DATA_ROOT = Path("/leonardo_work/EUHPC_D36_053/")
 
-# The eight items a completed `pixelset1/` is expected to contain.
+# The nine items a completed `pixelset1/` is expected to contain.
 # `valid_pixels/` and `all_pixels_selected.nc` are NOT here on purpose:
 # they are intermediate products of Steps 1–2 and are not part of the
 # deliverable. See the README "What is not in pixelset1/" note.
@@ -134,6 +136,7 @@ PIXELSET1_CONTENTS = [
     DATA_ROOT / "pixelset1" / "norm_stats_1992_2019.json",
     DATA_ROOT / "pixelset1" / "selected_pixels005_1.nc",
     DATA_ROOT / "pixelset1" / "selected_pixels005_balanced.nc",
+    DATA_ROOT / "pixelset1" / "selected_pixels01_1.nc",
 ]
 
 

@@ -3,8 +3,8 @@
 pft_diagnostics.py
 ==================
 
-Per-PFT diagnostics from a `selected_pixels_PFT{k}.nc` subset (the output of
-`phenonn.data_creation.filter_pixels_by_pft`, i.e. the cells dominated by one PFT).
+Per-PFT diagnostics from a `selected_pixels_PFT{k}.nc` subset (the cells
+dominated by one PFT).
 
 Reads the LAI and ERA5 pixelset datasets — indexed by `site_id`, so the subset
 needs no re-extraction — and produces four figures:
@@ -109,7 +109,7 @@ def parse_args():
     p.add_argument(
         "--parent_map",
         default="",
-        help="selected_pixels_01.nc mapping the subset's 0.05° (pix_...) "
+        help="selected_pixels01_1.nc mapping the subset's 0.05° (pix_...) "
         "ids to the ERA5 cubes' 0.1° (E...) ids. Only the ERA5 side is "
         "translated; LAI stays keyed by subset ids "
         "(scripts/smoke_train.sh pairing).",

@@ -63,7 +63,7 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--parent_map",
         default="",
-        help="selected_pixels_01.nc: falls back to the checkpoint's "
+        help="selected_pixels01_1.nc: falls back to the checkpoint's "
         "training --parent_map so features are read identically.",
     )
     p.add_argument(
