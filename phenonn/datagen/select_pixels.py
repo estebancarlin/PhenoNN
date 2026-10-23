@@ -14,11 +14,12 @@ Pipeline position
 
     compute_valid_pixels.py  →  valid_pixels_{YYYY}.nc   (per-year masks)
                                       ↓
-    select_pixels.py         →  selected_pixels.nc      (1 file, list of pixels)
+    select_pixels.py         →  selected_pixels005_1.nc (1 file, list of pixels)
                                       ↓
-    build_daily_dataset_pixelset.py ; build_pixelset_targets.py
+    make_selected_pixels_01.py ; build_pixelset_targets.py
                                       ↓
-    ERA5_daily_pixelset_{Y}.nc     PFTmap_{Y}.nc, LAI_{Y}.nc
+    selected_pixels01_1.nc        PFTmap_{Y}.nc, LAI_{Y}.nc
+    build_daily_dataset_era5idx.py -> ERA5_daily_pixelset_{Y}.nc
 
 Algorithm
 ---------
@@ -50,7 +51,7 @@ Run as a module::
 
     python -m phenonn.datagen.select_pixels \\
         --valid_dir   /leonardo_work/EUHPC_D36_053/PhenoNN/data/valid_pixels \\
-        --output_path /leonardo_work/EUHPC_D36_053/PhenoNN/data/selected_pixels.nc \\
+        --output_path /data/ecarlin/pixelset1/selected_pixels005_1.nc \\
         --fraction    0.1 \\
         --seed        42
 """
@@ -84,7 +85,7 @@ def encode_site_id(lat_idx: int, lon_idx: int) -> str:
 
     Notes
     -----
-    Inlined here (instead of importing from ``phenon.lai_dataset``) so this
+    Inlined here (instead of importing from ``phenonn.data.lai_dataset``) so this
     preprocessing step does not pull in torch.
 
     Examples

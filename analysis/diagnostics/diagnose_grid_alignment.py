@@ -146,7 +146,7 @@ def main():
     p.add_argument(
         "--parent_map",
         default="",
-        help="selected_pixels_01.nc mapping the pool's 0.05° (pix_...) ids "
+        help="selected_pixels01_1.nc mapping the pool's 0.05° (pix_...) ids "
         "to the ERA5 cubes' 0.1° (E...) ids before joining "
         "(scripts/smoke_train.sh pairing).",
     )

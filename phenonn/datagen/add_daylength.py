@@ -53,7 +53,7 @@ Torch-free. Reads use ``engine="netcdf4"``; the write is isolated in a
 subprocess (``_ncwrite``) to dodge the netCDF4 / h5py dual-libhdf5 conflict.
 
 Feeding ``daylength`` to the model is a separate step (a config toggle + a read
-in ``phenon.lai_dataset``), not done here.
+in ``phenonn.data.lai_dataset``), not done here.
 
 Examples
 --------

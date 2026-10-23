@@ -24,11 +24,11 @@ dominated by low-LAI pixels (absolute RMSE grows with LAI).
 Output
 ------
 ``{output_dir}/valid_pixels_{YYYY}.nc`` with one int8 variable ``valid`` on the
-``(latitude, longitude)`` ERA5-Land 0.1° grid (same coords as the target file).
+native 0.05 degree LAI/PFT grid (same coords as the target file).
 
 Notes
 -----
-The data loader (``phenon.lai_dataset.LAIDataset``) uses this mask via
+The data loader (``phenonn.data.lai_dataset.RamLAIDataset``) uses this mask via
 ``list_valid_sites(valid_dir, years)`` to draw its random sample pool — no
 NaN pixels ever get fed to the model.
 
@@ -42,12 +42,16 @@ Examples
 ::
 
     python -m phenonn.datagen.compute_valid_pixels \\
-        --target_dir  /leonardo_work/EUHPC_D36_053/PhenoNN/data/targets \\
-        --pft_dir     /leonardo_work/EUHPC_D36_053/PhenoNN/data/pft \\
-        --output_dir  /leonardo_work/EUHPC_D36_053/PhenoNN/data/valid_pixels \\
-        --year_start  1992 --year_end 2018 \\
-        --pft_threshold 0.5 --max_bare_frac 0.5 \\
-        --min_valid_dekads 26 --max_rmse 0.3
+        --target_dir  /path/to/full_grid/LAI \\
+        --pft_dir     /path/to/full_grid/PFT \\
+        --output_dir  /data/ecarlin/pixelset1/valid_pixels \\
+        --year_start  1992 --year_end 2019 \\
+        --pft_threshold 0.99 --max_bare_frac 0.4 \\
+        --min_valid_dekads 34 --max_rmse 0.3
+
+The report selection uses PFT sum > 0.99, bare soil < 0.4, and at least 34
+valid dekads out of 36. The script defaults are more permissive (0.5, 0.5,
+26), so pass the report values explicitly when rebuilding that selection.
 """
 
 import argparse
@@ -99,7 +103,7 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
 
     Notes
     -----
-    Inlined here (instead of importing from ``phenon.lai_dataset``) so this
+    Inlined here (instead of importing from ``phenonn.data.lai_dataset``) so this
     preprocessing step does not pull in torch.
     """
     rename = {}

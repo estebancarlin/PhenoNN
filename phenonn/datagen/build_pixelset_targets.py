@@ -35,7 +35,7 @@ Point training at the new dirs::
 
     --target_dir {out_target_dir}  --pft_dir {out_pft_dir}
 
-``phenon.lai_dataset`` auto-detects the pixelset layout (a ``site`` dim).
+``phenonn.data.lai_dataset`` auto-detects the pixelset layout (a ``site`` dim).
 
 Notes
 -----
@@ -50,12 +50,12 @@ Examples
 ::
 
     python -m phenonn.datagen.build_pixelset_targets \\
-        --selected_pixels /leonardo_work/EUHPC_D36_053/PhenoNN/data/selected_pixels005_1.nc \\
-        --target_dir      /leonardo_work/EUHPC_D36_053/PhenoNN/data/LAI/LAI2000_2005 \\
-        --pft_dir         /leonardo_work/EUHPC_D36_053/PhenoNN/data/PFT_map0.1 \\
-        --out_target_dir  /leonardo_work/EUHPC_D36_053/PhenoNN/data/LAI_pixelset \\
-        --out_pft_dir     /leonardo_work/EUHPC_D36_053/PhenoNN/data/PFT_pixelset \\
-        --year_start 1999 --year_end 2005
+        --selected_pixels /data/ecarlin/pixelset1/selected_pixels005_1.nc \\
+        --target_dir      /path/to/full_grid/LAI \\
+        --pft_dir         /path/to/full_grid/PFT \\
+        --out_target_dir  /data/ecarlin/pixelset1/LAI_pixelset \\
+        --out_pft_dir     /data/ecarlin/pixelset1/PFT_pixelset \\
+        --year_start 1992 --year_end 2019
 """
 
 import argparse
@@ -94,9 +94,9 @@ def _load_pft_vector_array(ds: xr.Dataset) -> xr.DataArray:
 
     Notes
     -----
-    Inlined here (instead of importing from ``phenon.lai_dataset``) so this
+    Inlined here (instead of importing from ``phenonn.data.lai_dataset``) so this
     preprocessing step does not pull in torch. Mirrors the loader in
-    ``phenon.lai_dataset`` / ``phenonn.datagen.compute_valid_pixels``.
+    ``phenonn.data.lai_dataset`` / ``phenonn.datagen.compute_valid_pixels``.
     """
     rename = {}
     for src, dst in [("lat", "latitude"), ("lon", "longitude"), ("veget", "pft")]:

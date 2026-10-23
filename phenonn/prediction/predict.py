@@ -152,7 +152,7 @@ def parse_args():
     p.add_argument(
         "--parent_map",
         default="",
-        help="Optional selected_pixels_01.nc. When set, ERA5 features are "
+        help="Optional selected_pixels01_1.nc. When set, ERA5 features are "
         "read from the deduplicated 0.1° pixelset via each 0.05° site's "
         "parent cell, instead of a 0.05°-indexed feature file. "
         "Must match the --parent_map used at training.",

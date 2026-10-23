@@ -8,10 +8,12 @@
 """
 Per-PFT diagnostics from a single-PFT pixel subset.
 
-Input is a ``selected_pixels_PFT{k}.nc`` subset (the output of
-``phenon.data.filter_pixels_by_pft``, i.e. the cells dominated by one PFT).
-Reads the LAI and ERA5 pixelset datasets — indexed by ``site_id``, so the
-subset needs no re-extraction — and produces four figures:
+Input is a ``selected_pixels_PFT{k}.nc`` subset (the cells dominated by one
+PFT). Reads the LAI and ERA5 pixelset datasets and produces four figures. LAI is
+keyed by the native 0.05 degree ``pix_...`` site IDs. ERA5 may be either the
+0.05 degree identity route or the deduplicated 0.1 degree route; for the
+latter, pass ``--parent_map`` so the subset IDs are translated to ``E...``
+cell IDs before the feature read.
 
 1. ``lai_seasonal.png``
    Mean dekadal LAI curve across the selected cells, with a ±1 std band and
@@ -47,6 +49,10 @@ Input
     Folder of ``LAI_dekadal_{Y}.nc``.
 ``--year_start`` / ``--year_end``
     Inclusive year range.
+``--parent_map``
+    Optional ``selected_pixels01_1.nc`` mapping each 0.05 degree ``pix_...``
+    site to its 0.1 degree ERA5 ``E...`` parent cell. Only the ERA5 side is
+    translated; LAI remains keyed by the subset IDs.
 
 Notes
 -----
@@ -78,7 +84,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from phenonn.datagen.config import METEO_BASE, FEATURES_FNAME, TARGETS_FNAME, PFT_NAMES
+from phenonn.datagen.config import (
+    DYNAMIC_FEATURES,
+    FEATURES_FNAME,
+    PFT_NAMES,
+    TARGETS_FNAME,
+)
 
 
 HIST_BINS = 60
@@ -103,7 +114,7 @@ def parse_args():
     args : argparse.Namespace
         Parsed arguments with attributes ``selected_pixels``, ``era5_dir``,
         ``target_dir``, ``year_start``, ``year_end``, ``features``,
-        ``output_dir``.
+        ``parent_map``, ``output_dir``.
     """
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -124,8 +135,15 @@ def parse_args():
         "--features",
         default="",
         help="Comma-separated feature names to plot "
-        "(default: config.METEO_BASE). Names absent from a "
+        "(default: config.DYNAMIC_FEATURES). Names absent from a "
         "file are skipped with a warning.",
+    )
+    p.add_argument(
+        "--parent_map",
+        default="",
+        help="selected_pixels01_1.nc mapping the subset's 0.05 degree "
+        "(pix_...) ids to the ERA5 cubes' 0.1 degree (E...) ids. Only the "
+        "ERA5 side is translated; LAI stays keyed by the subset ids.",
     )
     p.add_argument("--output_dir", default="pft_diagnostics")
     return p.parse_args()
@@ -174,6 +192,29 @@ def _load_selected(path: str) -> Tuple[np.ndarray, Optional[int]]:
         pft = sel.attrs.get("filter_pft_orchidee")
     pft = int(pft) if pft is not None else None
     return site_ids, pft
+
+
+def _load_parent01_map(selected_pixels_01: str) -> Dict[str, str]:
+    """
+    Return ``{site_id05: site_id01}`` from a ``selected_pixels01_1.nc``.
+
+    Kept local so this diagnostic remains torch-free.
+
+    Parameters
+    ----------
+    selected_pixels_01 : str
+        Parent-map file produced by ``make_selected_pixels_01.py``.
+
+    Returns
+    -------
+    dict
+        Mapping from 0.05 degree site IDs to 0.1 degree ERA5 cell IDs.
+    """
+    with xr.open_dataset(selected_pixels_01, engine="netcdf4") as ds:
+        site_id05 = np.asarray(ds["site_id05"].values).astype(str)
+        parent_site = np.asarray(ds["parent_site"].values).astype(np.int64)
+        site_id01 = np.asarray(ds["site_id"].values).astype(str)
+    return {s05: site_id01[p] for s05, p in zip(site_id05, parent_site)}
 
 
 def _site_mask(file_site_ids: np.ndarray, wanted: np.ndarray) -> np.ndarray:
@@ -646,7 +687,7 @@ def main():
     if args.features:
         feats = [s.strip() for s in args.features.split(",") if s.strip()]
     else:
-        feats = list(METEO_BASE)
+        feats = list(DYNAMIC_FEATURES)
 
     pft_lbl = (
         f"PFT {pft} ({PFT_NAMES[pft - 1]})"
@@ -658,11 +699,32 @@ def main():
 
     years = range(args.year_start, args.year_end + 1)
 
-    print("Loading LAI …")
+    print("Loading LAI ...")
     lai = _load_lai(Path(args.target_dir).resolve(), years, site_ids)
-    print("\nLoading features …")
+
+    era5_ids = site_ids
+    if args.parent_map:
+        pm = _load_parent01_map(args.parent_map)
+        missing = [s for s in site_ids if s not in pm]
+        if len(missing) == len(site_ids):
+            raise ValueError(
+                "parent_map matched none of the selected 0.05 degree sites; "
+                "check that it was built from the same selection file."
+            )
+        if missing:
+            print(
+                f"[warn] parent_map is missing {len(missing):,} of "
+                f"{len(site_ids):,} selected sites; they will be skipped."
+            )
+        era5_ids = np.array(sorted({pm[s] for s in site_ids if s in pm}))
+        print(
+            f"Parent map  : {args.parent_map} ({len(pm):,} links; "
+            f"{era5_ids.size:,} ERA5 cells for {len(site_ids):,} subset sites)"
+        )
+
+    print("\nLoading features ...")
     data, seasonal = _load_features(
-        Path(args.era5_dir).resolve(), years, site_ids, feats
+        Path(args.era5_dir).resolve(), years, era5_ids, feats
     )
 
     # Drop features with no data (e.g. a name absent from every file).
@@ -670,7 +732,7 @@ def main():
     if not feats:
         print("[warn] none of the requested features were found in the files.")
 
-    print("\nPlotting …")
+    print("\nPlotting ...")
     _plot_lai_seasonal(lai, os.path.join(args.output_dir, "lai_seasonal.png"), title)
     if feats:
         _plot_features_hist(

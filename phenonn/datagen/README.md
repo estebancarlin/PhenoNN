@@ -8,12 +8,17 @@ daily meteorological forcing, leaf area index (LAI), and plant functional type
 
 ## Coordinate contract
 
-The `selected_pixels` file defines the set of sites. Every subsequent product —
-ERA5 meteo, dekadal and daily LAI, PFT fractions, and normalisation statistics —
-is indexed by the **same `site_id`** and the **same native 0.05° grid coordinates**
-(`lat_idx`, `lon_idx`, `latitude`, `longitude`). This guarantees that a site read
-from any file refers to the same geographic cell, and that scattered per-site
-reads never require re-extraction or re-gridding.
+The 0.05° `selected_pixels005_*.nc` file defines the **target** sites. LAI, PFT,
+daily LAI, and the normalisation target statistics all use the same
+`pix_LLLL_OOOOO` IDs on the native 0.05° grid.
+
+The report route stores ERA5 features once per **0.1°** cell, using
+`E{lat_idx}_{lon_idx}` IDs. `make_selected_pixels_01.py` writes
+`selected_pixels01_1.nc`, which carries both the deduplicated 0.1° cells and a
+`parent_site` mapping from every 0.05° target site to its containing 0.1° cell.
+Training and prediction pass that file as `--parent_map`; the loader broadcasts
+the parent ERA5 values back onto the 0.05° targets. The 0.05° identity route,
+where features and targets share `pix_...` IDs, remains supported.
 
 ---
 
@@ -24,10 +29,11 @@ reads never require re-extraction or re-gridding.
 | **LAI, PFT** | **0.05°** (~5.5 km) | 3600 × 7200 | −180° … 180° | Site grid (identity, targets) |
 | **ERA5-Land meteo** | **0.1°** (~11 km) | 1801 × 3600 | 0° … 360° | Forcing (features) |
 
-One 0.1° cell contains exactly four 0.05° cells. The site grid is the **0.05°**
-LAI/PFT grid; each 0.05° site inherits the meteo of its containing 0.1° ERA5
-cell, so four consecutive 0.05° sites share identical ERA5 values while each
-keeps its own LAI and PFT.
+One 0.1° cell contains up to four 0.05° cells. The target grid is the **0.05°**
+LAI/PFT grid; on the report route each 0.05° site inherits the meteo of its
+containing 0.1° ERA5 cell, so neighbouring 0.05° sites share identical ERA5
+values while each keeps its own LAI and PFT. The 0.05° ERA5 extractor remains
+available for the legacy identity route.
 
 ---
 
@@ -41,7 +47,6 @@ valid_pixels_{YYYY}.nc (per-year 0.05° validity masks, from compute_valid_pixel
 ▼
 select_pixels.py  ──►  all_pixels_selected.nc         (--fraction 1.0, all land pixels)
 │                      selected_pixels005_1.nc        (--fraction ~0.1, valid subset)
-│                      selected_pixels01_1.nc         (0.1° parent map)
 │
 ▼
 rebalance_pixels.py     (PFT-dominance route)     ──► selected_pixels005_balanced.nc
@@ -50,7 +55,14 @@ rebalance_spatial.py    (10° block-density route) ──► selected_pixels005_
                                                     + rebalance_blocks.csv
 │
 ▼
-build_daily_dataset_pixelset.py
+make_selected_pixels_01.py
+  selected_pixels005_1.nc (superset of balanced) ──► selected_pixels01_1.nc
+│
+▼
+build_daily_dataset_era5idx.py   (0.1° report route)
+  ERA5-Land hourly ──► era5_pixelset/ERA5_daily_pixelset_Y.nc   (10 base vars)
+  or
+build_daily_dataset_pixelset.py  (0.05° legacy identity route)
   ERA5-Land hourly ──► era5_pixelset/ERA5_daily_pixelset_Y.nc
 │
 ▼
@@ -63,8 +75,9 @@ interpolate_lai_daily_linear.py
   LAI_pixelset     ──► LAI_daily_linear/LAI_daily_Y.nc
 │
 ▼
-(optional) add_daylength.py / add_pheno_thermal.py
-  era5_pixelset    ──► era5_pixelset_dl/ or era5_pheno/
+add_daylength.py + add_soil_moisture_proxy.py
+  era5_pixelset    ──► same files + daylength + SMI  (12 dynamic vars)
+  (optional) add_pheno_thermal.py ──► era5_pheno/
 │
 ▼
 create_stats_file.py
@@ -72,7 +85,8 @@ create_stats_file.py
 │
 ▼
 (training pipeline consumes era5_pixelset/ + LAI_daily_linear/ +
- norm_stats.json + CO2 LUT; PFT_pixelset/ for PFT conditioning)
+ norm_stats.json + CO2 LUT + selected_pixels01_1.nc; PFT_pixelset/ for PFT
+ conditioning)
 ```
 
 ---
@@ -82,7 +96,7 @@ create_stats_file.py
 **`CO2_1700_2023_TRENDYv2024.txt`**
 
 - An external CO₂ forcing table in `Annee_YYYY=VALUE` format.
-- Read **once**, at Step 6, by `create_stats_file.py --co2_path`.
+- Read **once**, at Step 9, by `create_stats_file.py --co2_path`.
 
 ---
 
@@ -96,7 +110,10 @@ create_stats_file.py
 
 **What it does:** for each year, evaluates the LAI/PFT validity criteria cell
 by cell on the native 0.05° grid and writes a boolean mask. The masks are the
-raw material from which the site set is sampled.
+raw material from which the site set is sampled. For the report dataset the
+criteria are PFT sum > 0.99, bare soil PFT1 < 0.4, and at least 34 valid LAI
+dekads out of 36. Pass these explicitly; the script defaults are more
+permissive.
 
 **Output:** `valid_pixels_{YYYY}.nc` — per-year 0.05° boolean masks.
 
@@ -127,9 +144,9 @@ raw material from which the site set is sampled.
 
 | File | Invocation | Meaning |
 |---|---|---|
-| `all_pixels_selected.nc` | `--fraction 1.0 --min_years 1` | **All** land pixels valid ≥1 year — the reference distribution |
-| `selected_pixels005_1.nc` | `--fraction ~0.1 --min_years 1` on the 0.05° masks | 0.05° valid subset (what everything downstream uses) |
-| `selected_pixels01_1.nc` | `--fraction ~0.1` on the 0.1° masks (or via `make_selected_pixels_01.py`) | 0.1° parent map (deduplicated ERA5 route) |
+| `all_pixels_selected.nc` | `--fraction 1.0 --min_years 1` | **All** land pixels valid ≥1 year, the reference distribution |
+| `selected_pixels005_1.nc` | `--fraction ~0.1 --min_years 1` on the 0.05° masks | 0.05° valid subset used by targets and the parent map |
+| `selected_pixels01_1.nc` | `make_selected_pixels_01.py` on `selected_pixels005_1.nc` | 0.1° deduplicated cells plus the 0.05° to 0.1° parent map |
 
 **Output schema:** `site = N_selected`; `lat_idx` (int32), `lon_idx` (int32),
 `latitude` (float32), `longitude` (float32), `site_id` (str).
@@ -205,43 +222,60 @@ block to hit `--target_total`.
 
 ---
 
-## Step 4 — ERA5 daily pixelset (meteo features)
+## Step 4 — Deduplicate ERA5 cells and build the parent map
 
-**Script:** `build_daily_dataset_pixelset.py`
+**Script:** `make_selected_pixels_01.py`
 
-**Inputs:**
-- `/bdd/ERA5-Land/NETCDF/GLOBAL_01/hourly/FC_SF` — raw ERA5-Land hourly
-  NetCDFs (`t2m, d2m, sp, ssrd, strd, tp`)
-- `selected_pixels005_*.nc` (the 0.05° selection)
+**Inputs:** `selected_pixels005_1.nc`, the full 0.05° valid subset (not the
+balanced subset, so the map remains a superset).
 
-**What it does:**
-1. Maps each 0.05° site to its containing 0.1° ERA5 cell:
-   - `lat_era5 = (row05 + 1) // 2`
-   - `lon_era5 = ((col05 + 1) // 2) % 3600`, then `+1800` roll
-     (−180..180 → 0..360 fix).
-2. Opens each hourly variable year, extracts only the selected pixels with
-   `isel(latitude=…, longitude=…)` → `(time, site)`.
-3. Resamples hourly → daily (`min/max/mean` for temperature; last-step-of-day
-   for the cumulative `ssrd/strd/tp`).
-4. Derives `VPD_max`, `VPD_mean`, `Rn_mean`, `Rn_tot`, `PET`
-   (Tetens + Priestley–Taylor).
-5. Drops intermediates (`Tdew_mean`, `sp_mean`, `Rn_mean`).
-6. Overwrites `site_id/latitude/longitude/lat_idx/lon_idx` with the **native
-   0.05°** values from `selected_pixels`.
+**What it does:** maps each 0.05° cell to its containing 0.1° ERA5-Land cell,
+deduplicates the 0.1° cells, and writes both resolutions to one file:
 
-**Output:** `era5_pixelset/ERA5_daily_pixelset_{1992…2019}.nc`
+- `site`: unique 0.1° cells, with raw ERA5 `lat_idx` / `lon_idx` and `E...` IDs;
+- `site05`: the original 0.05° IDs and `parent_site`, an index into `site`.
 
-Schema: `time=365, site=N`; vars `Tmin, Tmax, Tmean, ssrd_sum, strd_sum,
-tp_sum, VPD_max, VPD_mean, Rn_tot, PET`.
-
-> `build_daily_dataset_era5idx.py` is the **sibling** that writes
-> `era5_pixelset_01` (0.1° deduplicated cells, raw ERA5 indices, no roll). It
-> is **not** the writer of `era5_pixelset/` — that dir comes from
-> `build_daily_dataset_pixelset.py` (0.05° sites).
+**Output:** `selected_pixels01_1.nc`.
 
 ---
 
-## Step 5 — LAI and PFT pixelsets (targets)
+## Step 5 — ERA5 daily pixelset (meteo features)
+
+The report route uses `build_daily_dataset_era5idx.py`. The legacy identity
+route uses `build_daily_dataset_pixelset.py`; both write the same filenames and
+the same base variables.
+
+**Report route script:** `build_daily_dataset_era5idx.py`
+
+**Inputs:**
+- `/bdd/ERA5-Land/NETCDF/GLOBAL_01/hourly/FC_SF`, raw ERA5-Land hourly
+  NetCDFs (`t2m, d2m, sp, ssrd, strd, tp`)
+- `selected_pixels01_1.nc` from `make_selected_pixels_01.py`
+
+**What it does:** extracts ERA5 exactly once per unique 0.1° cell using the raw
+ERA5 indices, resamples hourly to daily, derives `VPD_max`, `VPD_mean`,
+`Rn_tot`, and `PET`, and writes `E...` site IDs. There is no 0.05° duplication
+and no longitude roll.
+
+**Legacy route script:** `build_daily_dataset_pixelset.py`
+
+**Inputs:**
+- The same raw ERA5-Land hourly archive
+- `selected_pixels005_*.nc`
+
+**What it does:** maps each 0.05° site to its containing 0.1° cell, extracts and
+resamples the meteo, then writes native 0.05° `pix_...` IDs. Four neighbouring
+sites share the same ERA5 values but are stored four times.
+
+**Output for either route:** `era5_pixelset/ERA5_daily_pixelset_{1992…2019}.nc`
+
+Schema: `time=365, site=N`; base vars `Tmin, Tmax, Tmean, ssrd_sum, strd_sum,
+tp_sum, VPD_max, VPD_mean, Rn_tot, PET`. Step 8 appends `daylength` and `SMI`,
+completing the 12 dynamic channels.
+
+---
+
+## Step 6 — LAI and PFT pixelsets (targets)
 
 **Script:** `build_pixelset_targets.py`
 
@@ -261,7 +295,7 @@ NFS). Writes the site coords onto the output.
 
 ---
 
-## Step 6 — Daily LAI by linear interpolation
+## Step 7 — Daily LAI by linear interpolation
 
 **Script:** `interpolate_lai_daily_linear.py`
 
@@ -277,26 +311,29 @@ carrying the same site coords.
 
 ---
 
-## Step 7 — (Optional) extra derived features
+## Step 8 — Augment the ERA5 features
 
-Two augmentation scripts exist; **neither output is in `pixelset/`**, but they
-are the documented next steps if `add_pheno_features` / `daylength` are enabled
-in config:
+The report contract needs 12 dynamic features. Step 5 writes the 10 base
+variables; two resolution-agnostic scripts append the remaining channels:
 
-- `add_daylength.py` — reads `era5_pixelset/ERA5_daily_pixelset_{Y}.nc`, adds
-  `daylength(time, site)` from latitude × day-of-year (FAO-56 declination).
-  Output → `era5_pixelset_dl/`.
-- `add_pheno_thermal.py` — reads `era5_pixelset/`, adds 10 ORCHIDEE thermal
-  phenology features (`gdd_0/5/10, ncd_temp, ncd_bor, ngd, botta_threshold,
-  botta_forcing, t_rising, t_falling`), hemisphere-aware annual reset, prepends
-  Y−1 for the SH mid-year reset. Output → `era5_pheno/`.
+- `add_daylength.py` reads `era5_pixelset/ERA5_daily_pixelset_{Y}.nc`, adds
+  `daylength(time, site)` from latitude and day-of-year (FAO-56 declination),
+  and writes the same layout to `--out_dir`. `--out_dir` may equal
+  `--features_dir` for an in-place update.
+- `add_soil_moisture_proxy.py` reads the same files, adds `SMI(time, site)`
+  from a causal 30-day precipitation weighted sum, and preserves the source
+  chunking. It also supports in-place updates.
 
-Both write to **new** directories; `era5_pixelset/` is the un-augmented Step-4
-output.
+The two passes are independent. Running both leaves `era5_pixelset/` with
+`Tmin ... PET, daylength, SMI`.
+
+`add_pheno_thermal.py` is optional and off by default. It adds 10 ORCHIDEE
+thermal phenology features and writes `era5_pheno/`; do not enable it for the
+report route.
 
 ---
 
-## Step 8 — Normalisation statistics
+## Step 9 — Normalisation statistics
 
 **Script:** `create_stats_file.py`
 
@@ -322,7 +359,7 @@ channel the trainer z-scores.
 
 ---
 
-## Step 9 — Diagnostics (not part of the data build)
+## Step 10 — Diagnostics (not part of the data build)
 
 **Script:** `diagnose_selected_pixels.py` (and `_bis`, `_pft`)
 
@@ -353,19 +390,20 @@ writes `lai_seasonal.png`, `features_hist.png`, `features_dist_by_year.png`,
 | File | Step | Produces |
 |---|---|---|
 | `compute_valid_pixels.py` | 1 | `valid_pixels_{YYYY}.nc` (per-year masks) |
-| `select_pixels.py` | 2 | `all_pixels_selected.nc`, `selected_pixels005_1.nc`, `selected_pixels01_1.nc` |
+| `select_pixels.py` | 2 | `all_pixels_selected.nc`, `selected_pixels005_1.nc` |
 | `rebalance_pixels.py` | 3a | `selected_pixels005_balanced.nc` (PFT route) |
 | `rebalance_spatial.py` | 3b | `selected_pixels005_balanced.nc` + `rebalance_blocks.csv` (spatial route) |
-| `make_selected_pixels_01.py` | 2 (wrapper) | `selected_pixels01_1.nc` (0.1° parent map), if used as a separate script |
-| `build_daily_dataset_pixelset.py` | 4 | `era5_pixelset/ERA5_daily_pixelset_Y.nc` |
-| `build_pixelset_targets.py` | 5 | `LAI_pixelset/LAI_dekadal_Y.nc`, `PFT_pixelset/PFTmap_Y.nc` |
-| `interpolate_lai_daily_linear.py` | 6 | `LAI_daily_linear/LAI_daily_Y.nc` |
-| `add_daylength.py` | 7 (optional) | `era5_pixelset_dl/` |
-| `add_pheno_thermal.py` | 7 (optional) | `era5_pheno/` |
-| `create_stats_file.py` | 8 | `norm_stats_1992_2019.json` |
-| `diagnose_selected_pixels.py` / `_bis.py` | 9 | `analysis/selected_pixels_diag_*` |
-| `pft_diagnostics.py` | 9 (separate) | `lai_seasonal.png`, `features_*.png` (not in `analysis/`) |
-| `build_daily_dataset_era5idx.py` | sibling of 4 | `era5_pixelset_01/` (0.1° deduplicated route) |
+| `make_selected_pixels_01.py` | 4 | `selected_pixels01_1.nc` (0.1° cells + parent map) |
+| `build_daily_dataset_era5idx.py` | 5 (report) | `era5_pixelset/ERA5_daily_pixelset_Y.nc` (0.1° route) |
+| `build_daily_dataset_pixelset.py` | 5 (legacy) | `era5_pixelset/ERA5_daily_pixelset_Y.nc` (0.05° route) |
+| `build_pixelset_targets.py` | 6 | `LAI_pixelset/LAI_dekadal_Y.nc`, `PFT_pixelset/PFTmap_Y.nc` |
+| `interpolate_lai_daily_linear.py` | 7 | `LAI_daily_linear/LAI_daily_Y.nc` |
+| `add_daylength.py` | 8 | `daylength` appended to `era5_pixelset/` |
+| `add_soil_moisture_proxy.py` | 8 | `SMI` appended to `era5_pixelset/` |
+| `add_pheno_thermal.py` | 8 (optional) | `era5_pheno/` |
+| `create_stats_file.py` | 9 | `norm_stats_1992_2019.json` |
+| `diagnose_selected_pixels.py` / `_bis.py` | 10 | `analysis/selected_pixels_diag_*` |
+| `pft_diagnostics.py` | 10 (separate) | `lai_seasonal.png`, `features_*.png` (not in `analysis/`) |
 
 ---
 
@@ -382,19 +420,26 @@ To rebuild `pixelset/` from scratch you need:
 Run order:
 
 ```
-Step 1  compute_valid_pixels.py       → valid_pixels_{YYYY}.nc
-Step 2  select_pixels.py              → all_pixels_selected.nc
-                                        selected_pixels005_1.nc
-                                        selected_pixels01_1.nc
+Step 1  compute_valid_pixels.py       -> valid_pixels_{YYYY}.nc
+Step 2  select_pixels.py              -> selected_pixels005_1.nc
+                                         (optionally all_pixels_selected.nc)
 Step 3  rebalance_pixels.py  (or)
-        rebalance_spatial.py          → selected_pixels005_balanced.nc
-Step 4  build_daily_dataset_pixelset.py   ─┐
-Step 5  build_pixelset_targets.py         ─┤ (4 and 5 can run in parallel)
-Step 6  interpolate_lai_daily_linear.py   ← depends on Step 5
-Step 7  add_daylength.py / add_pheno_thermal.py   (optional)
-Step 8  create_stats_file.py              ← depends on 4, 5, and CO2
-Step 9  diagnose_selected_pixels.py       (diagnostic only)
+        rebalance_spatial.py          -> selected_pixels005_balanced.nc
+Step 4  make_selected_pixels_01.py    -> selected_pixels01_1.nc
+Step 5  build_daily_dataset_era5idx.py (report)  -+
+        build_daily_dataset_pixelset.py (legacy)   | (5 and 6 can run in parallel)
+Step 6  build_pixelset_targets.py                 -+
+Step 7  interpolate_lai_daily_linear.py   <- depends on Step 6
+Step 8  add_daylength.py
+        add_soil_moisture_proxy.py        <- depends on Step 5
+Step 9  create_stats_file.py              <- depends on Steps 5, 6, 8, and CO2
+Step 10 diagnose_selected_pixels.py       (diagnostic only)
 ```
+
+For the report route, train and predict with
+`--selected_pixels selected_pixels005_balanced.nc` and
+`--parent_map selected_pixels01_1.nc`. The parent map is built from the full
+`selected_pixels005_1.nc` pool, so it remains a superset of the balanced subset.
 
 If you already have the selection files from Step 2 (and optionally the
 balanced variant from Step 3), you can start at Step 4.

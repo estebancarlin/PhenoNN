@@ -8,9 +8,8 @@ Plot the sites contained in a `selected_pixels.nc` file on a world map
 where the selected pixels fall relative to the landmasses.
 
 The input is any file with the selected-pixels layout (a `site` dim carrying
-`latitude` / `longitude`), e.g. the full pool from `phenonn.data_creation.select_pixels`,
-a PFT subset from `phenonn.data_creation.greedy_pure_pft` (selected_pixels_PFT{n}.nc), or
-a `phenonn.data_creation.filter_pixels_by_pft` output.
+`latitude` / `longitude`), e.g. the full site pool, a PFT subset
+(selected_pixels_PFT{n}.nc), or a filtered PFT subset.
 
 Coastlines need **cartopy** (`pip install cartopy`). If cartopy is not
 installed, the script still runs but degrades to a plain gridded lon/lat scatter

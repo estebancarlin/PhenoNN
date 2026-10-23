@@ -38,13 +38,13 @@ Data arguments
    * - ``--pft_dir``
      - Folder of ``PFTmap_{Y}.nc``.
    * - ``--selected_pixels``
-     - ``selected_pixels.nc``. Prefer this over ``--valid_dir`` on the
-       pixel-set pipeline.
+     - ``selected_pixels005_1.nc`` (or the balanced variant). Prefer this
+       over ``--valid_dir`` on the pixel-set pipeline.
    * - ``--valid_dir``
      - Folder of ``valid_pixels_{Y}.nc``. Used when
        ``--selected_pixels`` is not given.
    * - ``--parent_map``
-     - Optional ``selected_pixels_01.nc`` (0.05 deg to 0.1 deg parent
+     - Optional ``selected_pixels01_1.nc`` (0.05 deg to 0.1 deg parent
        map). Reads ERA5 features from the deduplicated 0.1 deg file.
    * - ``--stats_path``
      - ``norm_stats.json`` (optional). Enables log1p and z-scoring.
@@ -292,7 +292,8 @@ A minimal run on CPU (useful as a smoke test)::
         --features_dir /path/to/era5_pixelset \
         --target_dir   /path/to/LAI_pixelset \
         --pft_dir      /path/to/PFT_pixelset \
-        --selected_pixels /path/to/selected_pixels.nc \
+        --selected_pixels /path/to/selected_pixels005_1.nc \
+        --parent_map   /path/to/selected_pixels01_1.nc \
         --train_years 2000-2001 --val_years 2002 \
         --val_fraction_of_grid 100 \
         --subset 0.001 \
@@ -342,7 +343,8 @@ re-reading the same data for each configuration.
         "--features_dir", ".../era5_pixelset",
         "--target_dir",   ".../LAI_pixelset",
         "--pft_dir",      ".../PFT_pixelset",
-        "--selected_pixels", ".../selected_pixels.nc",
+        "--selected_pixels", ".../selected_pixels005_1.nc",
+        "--parent_map", ".../selected_pixels01_1.nc",
         "--train_years", "2010-2015", "--val_years", "2016",
         "--type", "lstm", "--hidden_size", "128",
         "--pft_mixing", "--pft_meteo_only",

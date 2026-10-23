@@ -9,16 +9,20 @@
 """
 LAI dataset on NetCDF pixelset cubes.
 
-A "site" is identified by ``pix_LLLL_OOOOO`` where ``LLLL`` is the
-latitude index and ``OOOOO`` the longitude index in the ERA5-Land 0.1°
-grid (zero-padded). This keeps diagnostic scripts written for LaiNN
-backward-compatible.
+A target "site" is identified by ``pix_LLLL_OOOOO`` where ``LLLL`` and
+``OOOOO`` are indices on the native 0.05 degree LAI/PFT grid (zero-padded).
+This keeps diagnostic scripts written for LaiNN backward-compatible.
 
-Sources read at construction time (all on the ERA5-Land 0.1° grid)::
+Features may live on either resolution::
 
     features_dir/ERA5_daily_pixelset_{YYYY}.nc   dims (time, site)
     target_dir/LAI_dekadal_{YYYY}.nc             dims (dekad, site)
     pft_dir/PFTmap_{YYYY}.nc                     dims (pft, site)
+
+On the 0.05 degree identity route, all three files use the same ``pix_...``
+IDs. On the deduplicated 0.1 degree ERA5 route, the feature file uses
+``E...`` cell IDs and ``parent_map`` maps each target ``pix_...`` site to its
+``E...`` parent.
 
 Each sample carries:
 
@@ -477,7 +481,7 @@ def load_selected_pixels(selected_path: str) -> List[str]:
 
 def load_parent01_map(selected_pixels_01: str) -> Dict[str, str]:
     """
-    Return ``{site_id05: site_id01}`` from a ``selected_pixels_01.nc``.
+    Return ``{site_id05: site_id01}`` from a ``selected_pixels01_1.nc``.
 
     Used to read ERA5 features on the deduplicated 0.1° grid from a
     dataset keyed on native 0.05° sites.
@@ -581,8 +585,10 @@ class RamLAIDataset(Dataset):
         the venv has a single thread-safe libhdf5.
     parent_map : dict or None, optional
         ``{site_id05: site_id01}``. When set, features are read from
-        the deduplicated 0.1° file at the parent cell of each 0.05°
-        site. Targets / PFT stay keyed by the 0.05° id.
+        the deduplicated 0.1 degree file at the parent cell of each
+        0.05 degree site. Targets / PFT stay keyed by the 0.05 degree id.
+        A map with zero overlap raises ``ValueError``; a partial map is
+        reported and the missing sites are dropped.
     daily_mode : str, optional
         Target mode. Supported values are ``"off"``, ``"interp"``,
         and ``"obs"``. The default is ``"off"``. ``"off"`` uses 36
@@ -644,6 +650,21 @@ class RamLAIDataset(Dataset):
         target_years = sorted(set(int(y) for y in years))
         feature_years = sorted(set(target_years) | {y - 1 for y in target_years})
         site_list = list(dict.fromkeys(site_ids))
+
+        if parent_map is not None:
+            mapped = [s for s in site_list if s in parent_map]
+            if not mapped:
+                raise ValueError(
+                    "parent_map matched none of the requested site IDs; "
+                    "check that it was built from the same selected_pixels file."
+                )
+            if len(mapped) < len(site_list) and verbose:
+                print(
+                    f"  [warn] parent_map is missing {len(site_list) - len(mapped):,} "
+                    f"of {len(site_list):,} requested sites; those sites will "
+                    "be dropped.",
+                    flush=True,
+                )
 
         # ── Phase 1: raw daily features → RAM ──────────────────────────────
         self._dyn: Dict[int, np.ndarray] = {}

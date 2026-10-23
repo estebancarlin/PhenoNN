@@ -41,7 +41,7 @@ METEO_BASE: List[str] = [
 ]
 
 # Thermal phenology features (ORCHIDEE v4.2 onset/gate proxies), all computed
-# from Tmean by phenonn.data_creation.add_pheno_thermal and stored in the SAME
+# from Tmean by phenonn.datagen.add_pheno_thermal and stored in the SAME
 # ERA5_daily_pixelset_{Y}.nc. Enabled via add_pheno_features above.
 DERIVED_FEATURES: List[str] = [
     "gdd_0",
@@ -57,9 +57,11 @@ DERIVED_FEATURES: List[str] = [
 ]
 
 # Engineered daily features appended to the ERA5 pixelset after the base build,
-# stored in the SAME ERA5_daily_pixelset_{Y}.nc (so read by name like METEO_BASE):
-#   daylength — phenonn.data_creation.add_daylength           (photoperiod, hours)
-#   SMI       — phenonn.data_creation.add_soil_moisture_proxy (30-day precip proxy)
+# stored in the SAME ERA5_daily_pixelset_{Y}.nc (so read by name like
+# METEO_BASE). Together with METEO_BASE they form the 12 dynamic channels of
+# the report contract:
+#   daylength — phenonn.datagen.add_daylength           (photoperiod, hours)
+#   SMI       — phenonn.datagen.add_soil_moisture_proxy (30-day precip proxy)
 AUGMENTED_FEATURES: List[str] = ["daylength", "SMI"]
 
 DYNAMIC_FEATURES: List[str] = (
